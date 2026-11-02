@@ -1,0 +1,11 @@
+project_id = "imposter-party"
+
+[api]
+port = 54321
+extra_search_path = ["public", "extensions"]
+
+[db]
+port = 54322
+
+[realtime]
+enabled = true
