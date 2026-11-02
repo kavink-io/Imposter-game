@@ -1,5 +1,5 @@
 import React from 'react';
-import { PlusCircle, LogIn, Users, ShieldCheck, Skull, Sparkles, HelpCircle } from 'lucide-react';
+import { PlusCircle, LogIn, Users, ShieldCheck, Skull, Sparkles, HelpCircle, Crown } from 'lucide-react';
 import { sounds } from '../lib/audio';
 
 export default function HomeView({ onGoCreate, onGoJoin, onOpenHelp }) {
@@ -9,7 +9,7 @@ export default function HomeView({ onGoCreate, onGoJoin, onOpenHelp }) {
       <div className="text-center space-y-4 max-w-2xl mx-auto">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-300 text-xs font-semibold">
           <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-          <span>Real-Time 8-Player Social Deduction Game</span>
+          <span>Real-Time Social Deduction Game • Unlimited Players</span>
         </div>
 
         <h1 className="text-4xl sm:text-6xl font-black text-white tracking-tight leading-none">
@@ -17,9 +17,9 @@ export default function HomeView({ onGoCreate, onGoJoin, onOpenHelp }) {
         </h1>
 
         <p className="text-slate-300 text-sm sm:text-base leading-relaxed">
-          8 Players. 5 Civilians. 2 Imposters. 1 Joker.
+          Host is the Game Master. Players get private secret words and clues.
           <br className="hidden sm:inline" />
-          Private roles and secret clues delivered right inside your browser in real-time.
+          Multiple rounds of investigation are conducted until the Imposter is exposed!
         </p>
       </div>
 
@@ -36,7 +36,7 @@ export default function HomeView({ onGoCreate, onGoJoin, onOpenHelp }) {
           </div>
           <h3 className="text-lg font-bold text-white mb-1">Create a Room</h3>
           <p className="text-xs text-slate-400 leading-relaxed">
-            Start a new game as host, get an invite code, and invite 7 friends to join!
+            Start a new game as the Game Master (Host), share the code, and invite friends to join!
           </p>
         </button>
 
@@ -51,42 +51,42 @@ export default function HomeView({ onGoCreate, onGoJoin, onOpenHelp }) {
           </div>
           <h3 className="text-lg font-bold text-white mb-1">Join Room</h3>
           <p className="text-xs text-slate-400 leading-relaxed">
-            Have a 6-character room code? Enter the code and your name to join the game!
+            Have a 6-character room code? Enter the code and your name to join as a player!
           </p>
         </button>
       </div>
 
-      {/* Roles Breakdown Preview */}
+      {/* Core Rules Highlights */}
       <div className="p-6 rounded-3xl bg-slate-900/60 border border-slate-800/80 max-w-2xl mx-auto space-y-4">
         <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 text-center">
-          Exact 8-Player Role Distribution
+          How the Game Works
         </h4>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">
-          <div className="p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/30">
-            <div className="flex items-center justify-center gap-1.5 text-emerald-400 font-bold text-sm mb-1">
-              <ShieldCheck className="w-4 h-4" /> 5 Civilians
+          <div className="p-3.5 rounded-2xl bg-amber-950/30 border border-amber-500/30">
+            <div className="flex items-center justify-center gap-1.5 text-amber-400 font-bold text-sm mb-1">
+              <Crown className="w-4 h-4 fill-amber-400" /> Host is Moderator
             </div>
             <p className="text-[11px] text-slate-300">
-              Know the secret word. Give subtle clues and vote out the 2 imposters!
+              The host directs the game, manages timers & voting, and does not play or vote!
             </p>
           </div>
 
-          <div className="p-3.5 rounded-2xl bg-rose-950/40 border border-rose-500/30">
-            <div className="flex items-center justify-center gap-1.5 text-rose-400 font-bold text-sm mb-1">
-              <Skull className="w-4 h-4" /> 2 Imposters
-            </div>
-            <p className="text-[11px] text-slate-300">
-              Receive a related clue. Bluff, pretend you know the word, and blend in!
-            </p>
-          </div>
-
-          <div className="p-3.5 rounded-2xl bg-purple-950/40 border border-purple-500/30">
+          <div className="p-3.5 rounded-2xl bg-purple-950/30 border border-purple-500/30">
             <div className="flex items-center justify-center gap-1.5 text-purple-400 font-bold text-sm mb-1">
-              <Sparkles className="w-4 h-4" /> 1 Joker
+              <Users className="w-4 h-4" /> Any Group Size
             </div>
             <p className="text-[11px] text-slate-300">
-              Knows the word! Must act suspicious and try to get voted out to win!
+              Play with 3, 4, 6, 8, 12, or more players! No player cap.
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-2xl bg-rose-950/30 border border-rose-500/30">
+            <div className="flex items-center justify-center gap-1.5 text-rose-400 font-bold text-sm mb-1">
+              <Skull className="w-4 h-4" /> Multi-Round Hunt
+            </div>
+            <p className="text-[11px] text-slate-300">
+              If an innocent civilian is voted out, rounds continue until the imposter is exposed!
             </p>
           </div>
         </div>

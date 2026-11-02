@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { 
   Eye, 
   MessageSquare, 
@@ -6,7 +6,8 @@ import {
   ChevronRight, 
   Clock, 
   ShieldCheck, 
-  Sparkles 
+  Sparkles,
+  Crown
 } from 'lucide-react';
 import PhaseTracker from '../components/PhaseTracker';
 import RoleCard from '../components/RoleCard';
@@ -28,6 +29,7 @@ export default function GameView({
   const currentPhase = room?.current_phase || 'ROLE_REVEAL';
   const roundNumber = room?.current_round_number || 1;
   const players = room?.players || [];
+  const aliveParticipants = players.filter(p => !p.is_host && !p.is_eliminated);
 
   const handleNextPhase = (nextPhase) => {
     sounds.playClick();
@@ -43,33 +45,47 @@ export default function GameView({
       {currentPhase === 'ROLE_REVEAL' && (
         <div className="space-y-6">
           <div className="text-center max-w-md mx-auto">
-            <h2 className="text-2xl font-black text-white">Check Your Secret Role</h2>
-            <p className="text-xs text-slate-400 mt-1">
-              Tap the card below to reveal your secret role, word, or clue. Tap again to hide it!
-            </p>
+            {isHost ? (
+              <>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold mb-2">
+                  <Crown className="w-3.5 h-3.5 fill-amber-400" /> Game Master Dashboard
+                </div>
+                <h2 className="text-2xl font-black text-white">Round #{roundNumber} Launched!</h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Players are viewing their secret role cards. You do not play or vote. When players are ready, begin discussion!
+                </p>
+              </>
+            ) : (
+              <>
+                <h2 className="text-2xl font-black text-white">Check Your Secret Role</h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Tap the card below to reveal your secret role, word, or clue. Tap again to conceal it!
+                </p>
+              </>
+            )}
           </div>
 
-          {/* Private Role Card */}
+          {/* Role Card / Game Master Card */}
           <RoleCard 
             roleData={roleData} 
             playerName={currentPlayer?.player_name} 
             isHost={isHost} 
           />
 
-          {/* Host advance button */}
+          {/* Host Advance to Discussion */}
           {isHost && (
             <div className="pt-4 border-t border-slate-800/80 flex flex-col items-center">
               <button
                 type="button"
                 onClick={() => handleNextPhase('DISCUSSION')}
                 disabled={isLoading}
-                className="w-full max-w-md py-3.5 px-6 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-sm tracking-wide shadow-lg shadow-purple-950/60 transition active:scale-95 flex items-center justify-center gap-2"
+                className="w-full max-w-md py-4 px-6 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-sm tracking-wide shadow-lg shadow-purple-950/60 transition active:scale-95 flex items-center justify-center gap-2"
               >
-                <span>Everyone Ready? Begin Discussion</span>
+                <span>Everyone Ready? Begin Discussion Round #{roundNumber}</span>
                 <ChevronRight className="w-4 h-4" />
               </button>
               <p className="text-[11px] text-slate-500 mt-2">
-                Click once everyone has viewed their private role card.
+                All {aliveParticipants.length} active players will give verbal clues in turn.
               </p>
             </div>
           )}
@@ -87,11 +103,11 @@ export default function GameView({
               initialSeconds={room?.settings?.discussionTime || 180} 
             />
 
-            {/* Quick peek at player's own role card */}
+            {/* Quick peek at player's own role card or host card */}
             <div>
               <div className="text-xs font-bold text-slate-300 mb-2 flex items-center gap-1.5">
                 <Eye className="w-3.5 h-3.5 text-purple-400" />
-                <span>Your Role Card (Tap to Peek):</span>
+                <span>{isHost ? 'Game Master Info Card:' : 'Your Role Card (Tap to Peek):'}</span>
               </div>
               <RoleCard 
                 roleData={roleData} 
@@ -108,10 +124,10 @@ export default function GameView({
                 type="button"
                 onClick={() => handleNextPhase('VOTING')}
                 disabled={isLoading}
-                className="w-full max-w-md py-3.5 px-6 rounded-2xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-black text-sm tracking-wide shadow-lg shadow-rose-950/60 transition active:scale-95 flex items-center justify-center gap-2"
+                className="w-full max-w-md py-4 px-6 rounded-2xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-black text-sm tracking-wide shadow-lg shadow-rose-950/60 transition active:scale-95 flex items-center justify-center gap-2"
               >
                 <Vote className="w-4 h-4" />
-                <span>Finish Discussion & Open Voting</span>
+                <span>Finish Discussion & Open Voting Round #{roundNumber}</span>
               </button>
             </div>
           )}
@@ -128,11 +144,11 @@ export default function GameView({
             onVote={onVote}
             onEndVoting={onEndVoting}
             isHost={isHost}
-            allVoted={players.every(p => p.has_voted)}
+            allVoted={aliveParticipants.every(p => p.has_voted)}
           />
 
           {/* Peek role card */}
-          <div className="max-w-md mx-auto pt-4">
+          <div className="max-w-md mx-auto pt-2">
             <RoleCard 
               roleData={roleData} 
               playerName={currentPlayer?.player_name} 

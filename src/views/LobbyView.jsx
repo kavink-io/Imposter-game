@@ -10,7 +10,11 @@ import {
   Play, 
   Lock, 
   Clock, 
-  ShieldAlert 
+  ShieldAlert,
+  Crown,
+  UserPlus,
+  ShieldCheck,
+  Skull
 } from 'lucide-react';
 import PlayerAvatar from '../components/PlayerAvatar';
 import { TOPIC_CATEGORIES } from '../lib/topics';
@@ -21,6 +25,7 @@ export default function LobbyView({
   currentPlayer,
   isHost,
   onStartRound,
+  onAddPlayers,
   isLoading
 }) {
   const [copied, setCopied] = useState(false);
@@ -28,12 +33,16 @@ export default function LobbyView({
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [manualTopic, setManualTopic] = useState('');
   const [manualClue, setManualClue] = useState('');
+  const [imposterCount, setImposterCount] = useState('auto');
+  const [includeJoker, setIncludeJoker] = useState(true);
   const [validationErr, setValidationErr] = useState('');
 
-  const players = room?.players || [];
+  const allPlayers = room?.players || [];
+  const hostPlayer = allPlayers.find(p => p.is_host);
+  const participants = allPlayers.filter(p => !p.is_host);
   const roomCode = room?.room_code || '';
-  const playerCount = players.length;
-  const isFull = playerCount === 8;
+  const participantCount = participants.length;
+  const canStart = participantCount >= 3;
 
   const copyInvite = () => {
     sounds.playClick();
@@ -47,8 +56,8 @@ export default function LobbyView({
     sounds.playClick();
     setValidationErr('');
 
-    if (playerCount !== 8) {
-      setValidationErr(`Exactly 8 players are required to start (currently ${playerCount}/8).`);
+    if (participantCount < 3) {
+      setValidationErr(`At least 3 players are required to start the game (currently ${participantCount}).`);
       return;
     }
 
@@ -61,9 +70,18 @@ export default function LobbyView({
       topicMode,
       selectedCategory,
       manualTopic: manualTopic.trim(),
-      manualClue: manualClue.trim()
+      manualClue: manualClue.trim(),
+      imposterCount,
+      includeJoker
     });
   };
+
+  // Calculate dynamic preview of roles
+  const calcImposters = imposterCount === 'auto' 
+    ? (participantCount <= 5 ? 1 : participantCount <= 10 ? 2 : 3)
+    : Math.min(Number(imposterCount), Math.max(1, Math.floor(participantCount / 2)));
+  const calcJoker = (includeJoker && participantCount >= 4) ? 1 : 0;
+  const calcCivilians = Math.max(1, participantCount - calcImposters - calcJoker);
 
   return (
     <div className="w-full max-w-4xl mx-auto px-4 py-6 space-y-6 animate-fadeIn">
@@ -71,13 +89,13 @@ export default function LobbyView({
       <div className="p-6 rounded-3xl bg-gradient-to-r from-purple-950/60 via-slate-900 to-slate-900 border border-purple-500/30 shadow-2xl flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs font-semibold mb-2">
-            <Users className="w-3.5 h-3.5" /> 8-Player Waiting Lobby
+            <Users className="w-3.5 h-3.5" /> Game Room Waiting Lobby
           </div>
           <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
             Room Code: <span className="text-purple-400 font-mono tracking-wider">{roomCode}</span>
           </h2>
           <p className="text-xs text-slate-300 mt-1">
-            Share this code or link with 7 friends to fill all 8 slots!
+            Share this room code or link with friends. No player limit (minimum 3 players)!
           </p>
         </div>
 
@@ -92,84 +110,116 @@ export default function LobbyView({
         </button>
       </div>
 
-      {/* 8 Player Slots Roster */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Users className="w-4 h-4 text-purple-400" />
-            Player Slots (Exactly 8 Required)
-          </h3>
-          <span className={`text-xs font-bold px-3 py-1 rounded-full ${
-            isFull 
-              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 animate-pulse' 
-              : 'bg-slate-800 text-slate-300'
-          }`}>
-            {playerCount} of 8 Players Joined
+      {/* Host Moderator Banner */}
+      {hostPlayer && (
+        <div className="p-4 rounded-2xl bg-amber-950/20 border border-amber-500/30 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center font-bold">
+              <Crown className="w-5 h-5 fill-amber-400" />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                <span>Room Host & Game Master:</span>
+                <strong className="text-white text-sm">{hostPlayer.player_name}</strong>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                The Host coordinates rounds, timers, and voting — the host does <strong>NOT</strong> play a secret role or vote.
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/20 hidden sm:inline">
+            MODERATOR
           </span>
         </div>
+      )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {Array.from({ length: 8 }).map((_, index) => {
-            const player = players[index];
-            const isMe = player && player.id === currentPlayer?.id;
+      {/* Participating Players Roster */}
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-base font-bold text-white flex items-center gap-2">
+            <Users className="w-4 h-4 text-purple-400" />
+            Joined Participants ({participantCount} Player{participantCount !== 1 ? 's' : ''})
+          </h3>
+          <div className="flex items-center gap-2">
+            <span className={`text-xs font-bold px-3 py-1 rounded-full ${
+              canStart 
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
+                : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+            }`}>
+              {canStart ? '✓ Ready to Launch' : `Need ${3 - participantCount} more player(s)`}
+            </span>
 
-            return (
-              <div
-                key={index}
-                className={`p-4 rounded-2xl border transition-all flex items-center gap-3 ${
-                  player
-                    ? 'bg-slate-900/90 border-slate-700/80 shadow-md'
-                    : 'bg-slate-950/40 border-dashed border-slate-800 text-slate-600'
-                } ${isMe ? 'ring-1 ring-purple-500/50 bg-purple-950/20' : ''}`}
+            {/* Quick Add Player button for fast testing */}
+            {isHost && onAddPlayers && (
+              <button
+                type="button"
+                onClick={() => onAddPlayers(1)}
+                className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-purple-300 text-xs font-semibold border border-slate-700 flex items-center gap-1 transition active:scale-95"
+                title="Add a test player"
               >
-                {player ? (
-                  <>
-                    <PlayerAvatar 
-                      playerNumber={player.player_number} 
-                      avatarIndex={player.avatar_index} 
-                      isHost={player.is_host} 
-                      size="md" 
-                    />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-bold text-white truncate">
-                          {player.player_name}
-                        </span>
-                        {isMe && (
-                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-500/30 text-purple-300">
-                            YOU
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        Slot #{player.player_number} {player.is_host ? '• Host' : '• Ready'}
-                      </span>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="w-11 h-11 rounded-2xl border border-dashed border-slate-800 flex items-center justify-center text-slate-600 font-bold text-xs">
-                      #{index + 1}
-                    </div>
-                    <div className="text-xs text-slate-500 italic">
-                      Waiting for Player #{index + 1}...
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })}
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>+1 Player</span>
+              </button>
+            )}
+          </div>
         </div>
+
+        {participants.length === 0 ? (
+          <div className="p-8 rounded-3xl bg-slate-900/60 border border-dashed border-slate-800 text-center space-y-2">
+            <Users className="w-8 h-8 text-slate-500 mx-auto" />
+            <h4 className="text-sm font-bold text-white">Waiting for Players to Join...</h4>
+            <p className="text-xs text-slate-400 max-w-sm mx-auto">
+              Share room code <strong className="text-purple-400 font-mono">{roomCode}</strong> or copy the invite link above!
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {participants.map((player) => {
+              const isMe = player.id === currentPlayer?.id;
+
+              return (
+                <div
+                  key={player.id}
+                  className={`p-3.5 rounded-2xl border transition-all flex items-center gap-3 bg-slate-900/90 border-slate-700/80 shadow-md ${
+                    isMe ? 'ring-2 ring-purple-500/60 bg-purple-950/20' : ''
+                  }`}
+                >
+                  <PlayerAvatar 
+                    playerNumber={player.player_number} 
+                    avatarIndex={player.avatar_index} 
+                    isHost={false} 
+                    size="md" 
+                  />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-bold text-white truncate">
+                        {player.player_name}
+                      </span>
+                      {isMe && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-500/30 text-purple-300">
+                          YOU
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      Participant #{player.player_number} • Ready
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* Host Topic Settings */}
+      {/* Host Match Settings */}
       {isHost ? (
         <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className="font-bold text-white text-base">Host Round Settings</h3>
+              <h3 className="font-bold text-white text-base">Game Master Settings</h3>
               <p className="text-xs text-slate-400">
-                Choose how the secret topic and clues will be selected.
+                Configure topic mode, imposter count, and joker role.
               </p>
             </div>
 
@@ -218,7 +268,7 @@ export default function LobbyView({
                 ))}
               </select>
               <p className="text-[11px] text-slate-400">
-                The server will randomly pick a topic and a related clue for the 2 Imposters.
+                The server will randomly pick a topic and a related clue for the Imposter(s).
               </p>
             </div>
           ) : (
@@ -237,7 +287,7 @@ export default function LobbyView({
               </div>
               <div>
                 <label className="text-xs font-bold text-slate-300 block mb-1">
-                  Imposter Clue: (Related without revealing the word)
+                  Imposter Clue: (Related hint to help imposter bluff)
                 </label>
                 <input
                   type="text"
@@ -250,19 +300,53 @@ export default function LobbyView({
             </div>
           )}
 
-          {/* Role Breakdown pill */}
-          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-[11px] text-slate-300 flex flex-wrap items-center justify-between gap-2">
-            <span>🎭 <strong>Server-side Role Assignment:</strong></span>
-            <div className="flex items-center gap-3 font-semibold">
-              <span className="text-emerald-400">5 Civilians</span>
-              <span className="text-rose-400">2 Imposters</span>
-              <span className="text-purple-400">1 Joker</span>
+          {/* Role Config Options */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-1">
+              <label className="text-xs font-bold text-slate-300 block">
+                Number of Imposters:
+              </label>
+              <select
+                value={imposterCount}
+                onChange={(e) => setImposterCount(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:border-purple-500 outline-none"
+              >
+                <option value="auto">Auto (Balanced based on player count)</option>
+                <option value="1">1 Imposter</option>
+                <option value="2">2 Imposters</option>
+                <option value="3">3 Imposters</option>
+              </select>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between">
+              <div>
+                <div className="text-xs font-bold text-slate-300">Include Joker Role:</div>
+                <div className="text-[10px] text-slate-400">Wins alone if voted out (4+ players)</div>
+              </div>
+              <input
+                type="checkbox"
+                checked={includeJoker}
+                onChange={(e) => setIncludeJoker(e.target.checked)}
+                className="w-4 h-4 accent-purple-600 rounded cursor-pointer"
+              />
             </div>
           </div>
+
+          {/* Dynamic Role Breakdown Pill */}
+          {participantCount >= 3 && (
+            <div className="p-3 rounded-xl bg-purple-950/30 border border-purple-500/20 text-xs text-slate-300 flex flex-wrap items-center justify-between gap-2">
+              <span className="font-semibold text-purple-300">Expected Role Distribution:</span>
+              <div className="flex items-center gap-3 font-mono font-bold text-[11px]">
+                <span className="text-emerald-400">{calcCivilians} Civilians</span>
+                <span className="text-rose-400">{calcImposters} Imposter{calcImposters > 1 ? 's' : ''}</span>
+                {calcJoker > 0 && <span className="text-amber-400">1 Joker</span>}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 text-center text-xs text-slate-400">
-          Only the room host can configure game settings and start the round.
+          Only the room host can configure settings and launch the game.
         </div>
       )}
 
@@ -279,7 +363,7 @@ export default function LobbyView({
           <button
             type="button"
             onClick={handleStart}
-            disabled={!isFull || isLoading}
+            disabled={!canStart || isLoading}
             className="w-full max-w-md py-4 px-8 rounded-2xl bg-gradient-to-r from-purple-600 via-violet-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-base sm:text-lg tracking-wide shadow-xl shadow-purple-950/60 disabled:opacity-40 disabled:pointer-events-none transition transform hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center gap-3"
           >
             {isLoading ? (
@@ -287,13 +371,17 @@ export default function LobbyView({
             ) : (
               <>
                 <Play className="w-5 h-5 fill-white" />
-                <span>{isFull ? 'Start Game & Assign Roles' : `Need ${8 - playerCount} More Player${8 - playerCount > 1 ? 's' : ''}`}</span>
+                <span>
+                  {canStart 
+                    ? `Start Game with ${participantCount} Players` 
+                    : `Need ${3 - participantCount} More Player(s) to Start`}
+                </span>
               </>
             )}
           </button>
         ) : (
           <div className="text-center text-xs text-purple-300/80 font-medium">
-            Waiting for host to launch the round once all 8 players join...
+            Waiting for the Game Master to launch the round...
           </div>
         )}
       </div>

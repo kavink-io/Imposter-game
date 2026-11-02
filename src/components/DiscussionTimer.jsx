@@ -12,6 +12,9 @@ export default function DiscussionTimer({
   const [activeSpeakerIdx, setActiveSpeakerIdx] = useState(0);
   const timerRef = useRef(null);
 
+  // Filter to active alive participants only (host does not speak or play)
+  const speakers = players.filter(p => !p.is_host && !p.is_eliminated);
+
   useEffect(() => {
     if (isRunning) {
       timerRef.current = setInterval(() => {
@@ -47,7 +50,9 @@ export default function DiscussionTimer({
 
   const nextSpeaker = () => {
     sounds.playClick();
-    setActiveSpeakerIdx((prev) => (prev + 1) % (players.length || 8));
+    if (speakers.length > 0) {
+      setActiveSpeakerIdx((prev) => (prev + 1) % speakers.length);
+    }
   };
 
   const formatTime = (secs) => {
@@ -55,6 +60,8 @@ export default function DiscussionTimer({
     const remainder = secs % 60;
     return `${mins.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}`;
   };
+
+  const currentSpeaker = speakers[activeSpeakerIdx] || speakers[0];
 
   return (
     <div className="w-full bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
@@ -82,7 +89,7 @@ export default function DiscussionTimer({
           {formatTime(seconds)}
         </div>
         <p className="text-[11px] text-slate-400 mt-1">
-          Each player gives one short verbal clue. Imposters bluff; Joker tricks!
+          Each alive participant gives one short verbal clue. Imposters bluff; Joker tricks!
         </p>
       </div>
 
@@ -130,7 +137,7 @@ export default function DiscussionTimer({
       </div>
 
       {/* Verbal Clue Turn Assistant */}
-      {players.length > 0 && (
+      {speakers.length > 0 && (
         <div className="pt-2 border-t border-slate-800/80">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1">
@@ -151,7 +158,7 @@ export default function DiscussionTimer({
             </div>
             <div className="text-xs">
               <span className="font-bold text-white">
-                {players[activeSpeakerIdx]?.player_name || `Player ${activeSpeakerIdx + 1}`}
+                {currentSpeaker?.player_name || `Participant ${activeSpeakerIdx + 1}`}
               </span>
               <span className="text-slate-400 text-[10px] ml-1.5">giving verbal clue</span>
             </div>

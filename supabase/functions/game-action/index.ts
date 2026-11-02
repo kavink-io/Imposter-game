@@ -45,6 +45,8 @@ serve(async (req) => {
           p_topic_mode: payload.topic_mode || "random",
           p_manual_topic: payload.manual_topic || "",
           p_manual_clue: payload.manual_clue || "",
+          p_imposter_count: payload.imposter_count || 0,
+          p_include_joker: payload.include_joker !== undefined ? payload.include_joker : true,
         });
         break;
 
@@ -73,6 +75,13 @@ serve(async (req) => {
 
       case "end_voting_and_tally":
         result = await supabaseClient.rpc("rpc_end_voting_and_tally", {
+          p_room_code: payload.room_code,
+          p_host_token: payload.host_token,
+        });
+        break;
+
+      case "proceed_to_next_round":
+        result = await supabaseClient.rpc("rpc_proceed_to_next_round", {
           p_room_code: payload.room_code,
           p_host_token: payload.host_token,
         });

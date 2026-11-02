@@ -8,7 +8,8 @@ import {
   HelpCircle, 
   Lock, 
   Flame, 
-  AlertTriangle 
+  AlertTriangle,
+  Crown
 } from 'lucide-react';
 import { sounds } from '../lib/audio';
 
@@ -28,13 +29,80 @@ export default function RoleCard({ roleData, playerName, isHost = false }) {
         </div>
         <h3 className="text-lg font-bold text-white">Awaiting Role Assignment...</h3>
         <p className="text-xs text-slate-400">
-          The host will start the round once all 8 player slots are filled.
+          The host will start the round once all players are ready.
         </p>
       </div>
     );
   }
 
-  const { role, secret_word, clue, category, instruction } = roleData;
+  const { role, secret_word, clue, category, instruction, is_eliminated } = roleData;
+
+  // Check if Host Game Master
+  if (isHost || role === 'HOST') {
+    return (
+      <div className="w-full max-w-md mx-auto p-6 sm:p-7 rounded-3xl bg-gradient-to-br from-amber-950/40 via-slate-900 to-slate-950 border border-amber-500/40 shadow-2xl space-y-4">
+        <div className="flex items-center justify-between border-b border-amber-500/20 pb-3">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+              <Crown className="w-4 h-4 fill-amber-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white">Game Master Card</h3>
+              <p className="text-[10px] text-amber-300 font-mono">MODERATOR • NOT A PLAYER</p>
+            </div>
+          </div>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+            Host View
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 text-center">
+          <div className="p-3 rounded-2xl bg-slate-950 border border-emerald-500/30">
+            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block">
+              Secret Word
+            </span>
+            <span className="text-lg font-black text-white">
+              "{secret_word}"
+            </span>
+            <span className="text-[9px] text-slate-400 block mt-0.5">
+              Category: {category}
+            </span>
+          </div>
+
+          <div className="p-3 rounded-2xl bg-slate-950 border border-rose-500/30">
+            <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider block">
+              Imposter Clue
+            </span>
+            <span className="text-lg font-black text-white">
+              "{clue}"
+            </span>
+            <span className="text-[9px] text-slate-400 block mt-0.5">
+              Given to Imposter(s)
+            </span>
+          </div>
+        </div>
+
+        <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/50 p-3 rounded-xl border border-slate-800">
+          You are the Moderator! You guide the players through clues and discussion, and conduct voting rounds until an imposter is exposed. You do not vote.
+        </p>
+      </div>
+    );
+  }
+
+  // Spectator / Eliminated view
+  if (is_eliminated) {
+    return (
+      <div className="w-full max-w-md mx-auto p-6 rounded-3xl bg-slate-900/80 border border-rose-500/30 text-center space-y-3">
+        <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center mx-auto text-xl">
+          👻
+        </div>
+        <h3 className="text-base font-bold text-white">Spectator Mode</h3>
+        <p className="text-xs text-slate-300">
+          You were voted out in a previous round! You cannot vote or give clues, but you can spectate the remaining alive players as they hunt the imposter.
+        </p>
+      </div>
+    );
+  }
 
   // Determine styling based on role
   const isImposter = role === 'IMPOSTER';
@@ -120,7 +188,7 @@ export default function RoleCard({ roleData, playerName, isHost = false }) {
                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                     : 'bg-purple-500/20 text-purple-300 border border-purple-500/40'
                 }`}>
-                  {isImposter ? '2 Imposters in Room' : isCivilian ? '5 Civilians in Room' : '1 Joker in Room'}
+                  {isImposter ? 'Imposter' : isCivilian ? 'Civilian' : 'Joker'}
                 </span>
               </div>
 
@@ -157,7 +225,7 @@ export default function RoleCard({ roleData, playerName, isHost = false }) {
                     "{clue}"
                   </div>
                   <div className="text-[11px] text-rose-200/80 mt-1">
-                    You DO NOT know the word. Both Imposters share this clue!
+                    You DO NOT know the word. Use this clue to blend in!
                   </div>
                 </>
               ) : isCivilian ? (

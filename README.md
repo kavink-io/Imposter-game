@@ -1,38 +1,51 @@
-# 🎭 Imposter Party - Real-Time 8-Player Deduction Game
+# 🎭 Imposter Party - Real-Time Social Deduction Game
 
-A modern, responsive, real-time multiplayer web application for **exactly 8 players**, built with **React, Vite, Tailwind CSS, and Supabase**, tailored for frictionless deployment to **Vercel**.
+A modern, responsive, real-time multiplayer web application built with **React, Vite, Tailwind CSS, and Supabase**, tailored for deployment to **Vercel**.
 
 All player communication, secret topic distribution, private role cards, discussion timers, and voting ballots are handled **100% internally inside the website**. No WhatsApp, external messaging apps, phone numbers, or SMS required!
 
 ---
 
-## 🌟 Game Overview & Roles (Strictly 8 Players)
+## 🌟 Key Updates & Game Architecture
 
-In every round, the server securely assigns one of three secret roles to each of the 8 players:
+### 1. 👑 Host Does Not Play Any Role
+- The **Room Host is the Game Master (Moderator)**.
+- The host organizes the room, starts the game, manages timers, speaking turns, and opens/closes voting rounds.
+- **The host does NOT receive a secret player role and does NOT vote.**
+- The host has a dedicated Game Master dashboard with topic overview and live round monitoring.
 
-| Role | Count | Secret Info | Mission / Victory Condition |
-| :--- | :---: | :--- | :--- |
-| **👥 Civilian** | **5** | **Secret Word** (e.g. `PIZZA`) | Know the secret word. Give subtle verbal clues to identify the 2 Imposters without revealing the word. Avoid voting out the Joker! |
-| **🚨 Imposter** | **2** | **Secret Clue** (e.g. `ITALIAN`) | Do **NOT** know the secret word! Receive a related clue. Both Imposters share this clue to bluff, blend in, and survive the vote! |
-| **🃏 Joker** | **1** | **Secret Word** (e.g. `PIZZA`) | **Knows the secret word**, BUT must act suspicious and pretend to be an imposter. **If the group votes the Joker out, the Joker wins alone!** |
+### 2. 🔍 Multiple Rounds Until the Imposter is Exposed
+- In each round (Round 1, Round 2, Round 3...), players give verbal clues and secretly vote on who they suspect is an Imposter.
+- At the end of voting:
+  - If an **Imposter is voted out**: The Imposter is **EXPOSED!** 👥 **Civilians Win!** (Game finishes).
+  - If the **Joker is voted out**: The Joker tricked the group! 🃏 **Joker Wins Alone!**
+  - If an **Innocent Civilian is voted out**: The Imposter has escaped detection!
+    - The eliminated civilian sits out as a spectator.
+    - The match **does not end** — the host clicks **"Proceed to Round X (Hunt Continues!)"**.
+    - The remaining alive players continue the investigation with the same secret topic into the next round until the Imposter is exposed (or Imposters reach parity)!
+
+### 3. 👥 Unlimited Players (No 8-Player Limit)
+- Play with **any number of players** (minimum 3 players; no upper cap: 4, 6, 8, 10, 12, 16+ players!).
+- Dynamic server-side role balancing:
+  - **Imposter Count**: Auto-balanced (1 for 3-5 players, 2 for 6-10 players, 3 for 11+ players) or customizable by the host.
+  - **Joker**: 1 Joker (active when 4+ players, optional toggle in host settings).
+  - **Civilians**: All remaining players are Civilians with the secret word.
 
 ---
 
 ## 🚀 Key Features
 
-- **Private In-Website Role Cards**: Authenticated server delivery. Each player gets a 3D animated flip card with a **"Reveal My Role"** button, role-specific neon glows, icons, and instructions. Tap to reveal, tap again to conceal!
-- **Strict 8-Player Lobby**: Transaction-safe room locking. The host can only launch once all 8 slots are occupied.
-- **Cryptographic Server-Side Distribution**: Role assignments and random topic selections happen entirely on the database/server side. Secret roles and words are **never broadcast in public room channels**.
+- **Private In-Website Role Cards**: Authenticated server delivery. Each participant gets a 3D animated flip card with a **"Reveal My Role"** button, role-specific neon glows, icons, and instructions. Tap to reveal, tap again to conceal!
+- **Game Master Dashboard**: Host can view the secret word and imposter clues, monitor who has cast their ballot, and control round transitions.
 - **Dual Topic Modes**:
   - **Random Topic**: Server picks from 50+ curated topics and imposter clues across 6 categories.
   - **Manual Topic**: Host types a custom secret word and imposter clue before launching.
 - **In-Game Discussion Assistant**: Customizable timer with audio warnings, time-up buzzer, and a verbal clue turn indicator.
-- **Private In-App Voting**: Players privately ballot for one of the other 7 players (cannot vote for self). Ballots remain secret until the host closes voting.
+- **Private In-App Voting**: Players privately ballot for one of the other alive players (cannot vote for self, host, or eliminated players). Ballots remain secret until the host closes voting.
 - **Dramatic Results Reveal**: Tally reveal, eliminated players, role cards unmasked, and celebratory confetti!
-- **Start Next Round Button**: Keep the exact same 8 friends in the room, re-randomize roles, pick a new topic, and increment the round counter.
 - **Dual-Engine Architecture**:
   - **Live Supabase Mode**: Connects to Supabase PostgreSQL with Realtime subscriptions and `SECURITY DEFINER` RPCs.
-  - **Local Multi-Tab Simulation Engine**: Built-in `BroadcastChannel` and testing dock allowing full end-to-end testing across 8 tabs or within a single browser window!
+  - **Local Multi-Tab Simulation Engine**: Built-in `BroadcastChannel` and testing dock allowing full end-to-end testing across multiple tabs or within a single browser window!
 
 ---
 
@@ -52,24 +65,15 @@ In every round, the server securely assigns one of three secret roles to each of
   node -v
   ```
 
-### 2. Clone or Navigate to the Project Directory
-```powershell
-cd c:\Users\Kavin\WH
-```
-
-### 3. Install Dependencies
+### 2. Install Dependencies & Run
 ```powershell
 npm install
-```
-
-### 4. Run Development Server
-```powershell
 npm run dev
 ```
 Open **[http://localhost:5173](http://localhost:5173)** in your browser!
 
 > 💡 **Instant Testing Tip**:
-> In local mode, click **"Create Room"**, enter your name, and in the lobby tap **"Auto-Fill to 8 Players"** in the bottom dock! You can then launch the round and switch between any of the 8 players' points of view with 1 click to test private role cards, discussion, and voting!
+> In local mode, click **"Create Room"**, enter your name (Host), and in the lobby tap **"+1 Player"** or **"+4 Players"** in the bottom testing dock! You can then launch the round and switch between any player or the Game Master with 1 click to test private role cards, discussion, and voting!
 
 ---
 
@@ -77,86 +81,36 @@ Open **[http://localhost:5173](http://localhost:5173)** in your browser!
 
 To connect the application to a live Supabase project for real-world multiplayer play on separate phones:
 
-### Step 1: Create a Free Supabase Project
-1. Go to [supabase.com](https://supabase.com) and create a free account.
-2. Click **New Project** and select a database region.
-
-### Step 2: Run the Database Migrations
-1. In the Supabase Dashboard, open the **SQL Editor** from the left navigation.
-2. Click **New Query**.
-3. Copy the entire contents of [`supabase/migrations/20261030000000_imposter_party_schema.sql`](file:///c:/Users/Kavin/WH/supabase/migrations/20261030000000_imposter_party_schema.sql) and paste it into the editor.
-4. Click **Run** (Ctrl+Enter). This creates all 6 tables, constraints, Row Level Security policies, and secure server-side RPC functions.
-
-### Step 3: Seed the Topic & Clue Database
-1. In the **SQL Editor**, open another **New Query**.
-2. Copy the entire contents of [`supabase/seed.sql`](file:///c:/Users/Kavin/WH/supabase/seed.sql) and paste it.
-3. Click **Run** to load 50+ curated topics and imposter clues.
-
-### Step 4: Retrieve API Keys
-1. In Supabase, go to **Project Settings** (gear icon) -> **API**.
-2. Copy the **Project URL** (`https://<project-ref>.supabase.co`).
-3. Copy the **Project API Anon Key** (`ey...`).
-
-### Step 5: Configure Local Environment
-Create a `.env` file in the project root:
-```env
-VITE_SUPABASE_URL=https://your-project-ref.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJhbGciOi...
-```
+1. Create a free project at [supabase.com](https://supabase.com).
+2. Open the **SQL Editor** in your Supabase dashboard.
+3. Copy the entire contents of [`supabase/migrations/20261030000000_imposter_party_schema.sql`](supabase/migrations/20261030000000_imposter_party_schema.sql) and paste it into the editor, then click **Run**.
+4. Open [`supabase/seed.sql`](supabase/seed.sql) and paste it into a new query, then click **Run** to load 50+ curated topics and clues.
+5. In **Project Settings** -> **API**, copy your **Project URL** and **Project API Anon Key**.
+6. Create a `.env` file in the project root:
+   ```env
+   VITE_SUPABASE_URL=https://your-project-ref.supabase.co
+   VITE_SUPABASE_ANON_KEY=eyJhbGciOi...
+   ```
 
 ---
 
 ## 🌐 Vercel Deployment Instructions
 
-Deploying the frontend to Vercel takes less than 2 minutes:
-
-### Option A: Using the Vercel Dashboard (Recommended)
 1. Push your repository to GitHub:
    ```bash
    git init
    git add .
-   git commit -m "Initial commit of Imposter Party"
+   git commit -m "Deploy Imposter Party"
    git branch -M main
    git remote add origin https://github.com/YOUR_USERNAME/imposter-party.git
    git push -u origin main
    ```
 2. Log in to [vercel.com](https://vercel.com) and click **Add New...** -> **Project**.
 3. Select your `imposter-party` repository.
-4. Framework Preset will auto-detect as **Vite**.
-5. Under **Environment Variables**, add:
+4. Under **Environment Variables**, add:
    - `VITE_SUPABASE_URL` = `https://<your-project-ref>.supabase.co`
    - `VITE_SUPABASE_ANON_KEY` = `<your-supabase-anon-key>`
-6. Click **Deploy**!
-
-### Option B: Using the Vercel CLI
-```powershell
-npm i -g vercel
-vercel
-```
-
----
-
-## 📱 How to Test with 8 Real Players on Separate Phones
-
-1. Open your live Vercel URL on your phone or laptop.
-2. Click **Create Room**, enter your name, and tap **Create Room & Enter Lobby**.
-3. Click the **"Copy Invite Link"** button (or share the 6-character room code, e.g. `PARTY8`).
-4. Have 7 friends open the link on their mobile browsers (iOS Safari, Android Chrome, etc.).
-5. Each player enters their display name and joins.
-6. The host's lobby updates in real-time as each slot fills up: `1/8`, `2/8` ... `8/8`.
-7. Once all 8 players have joined, the host clicks **"Start Game & Assign Roles"**.
-8. Every player's phone instantly updates to their confidential 3D card. Tap **"Reveal My Role"**!
-9. Conduct the discussion round and cast private votes.
-10. The host taps **"Tally Votes & Reveal Results"** to reveal the winner!
-
----
-
-## 🔒 Security Architecture
-
-- **Token-Based Private Authentication**: When a player joins a room, a cryptographically secure 256-bit token is generated on the server (`player_token`).
-- **Zero Public Secret Leaks**: The `private_player_roles` table has Row Level Security completely blocking direct SELECTs during active games. Only the `rpc_get_my_private_role` function can access a role, and only when provided with that player's exact private token.
-- **Host Role Protection**: Critical actions (starting rounds, advancing phases, closing voting) verify the caller is the host via `is_host = true` linked to their private token.
-- **No Self-Voting**: The database RPC verifies `voter_id != target_id` at the SQL level.
+5. Click **Deploy**!
 
 ---
 

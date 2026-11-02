@@ -14,21 +14,22 @@ CREATE TABLE IF NOT EXISTS public.rooms (
     current_round_number INT NOT NULL DEFAULT 1,
     current_phase VARCHAR(30) NOT NULL DEFAULT 'WAITING' 
         CHECK (current_phase IN ('WAITING', 'ROLE_ASSIGNMENT', 'ROLE_REVEAL', 'DISCUSSION', 'VOTING', 'RESULTS')),
-    settings JSONB NOT NULL DEFAULT '{"topicMode":"random","category":"all","discussionTime":180}'::jsonb,
+    settings JSONB NOT NULL DEFAULT '{"topicMode":"random","category":"all","discussionTime":180,"imposterCount":"auto","includeJoker":true}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- 3. Create Room Players Table (Exactly 8 player slots per room)
+-- 3. Create Room Players Table (Unlimited players supported, host is player_number 0)
 CREATE TABLE IF NOT EXISTS public.room_players (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     room_id UUID NOT NULL REFERENCES public.rooms(id) ON DELETE CASCADE,
-    player_number INT NOT NULL CHECK (player_number BETWEEN 1 AND 8),
+    player_number INT NOT NULL CHECK (player_number >= 0),
     player_name VARCHAR(50) NOT NULL,
     avatar_index INT NOT NULL DEFAULT 0,
     is_host BOOLEAN NOT NULL DEFAULT false,
     is_connected BOOLEAN NOT NULL DEFAULT true,
-    player_token VARCHAR(64) NOT NULL, -- Secret token used to authenticate private role requests
+    is_eliminated BOOLEAN NOT NULL DEFAULT false,
+    player_token VARCHAR(64) NOT NULL,
     has_voted BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (room_id, player_number),
@@ -51,7 +52,8 @@ CREATE TABLE IF NOT EXISTS public.rounds (
     category VARCHAR(100) NOT NULL DEFAULT 'General',
     clue VARCHAR(100) NOT NULL,
     status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'VOTING', 'COMPLETED')),
-    winner VARCHAR(30) CHECK (winner IN ('CIVILIANS', 'IMPOSTERS', 'JOKER', 'DRAW')),
+    round_result VARCHAR(40) DEFAULT 'ACTIVE',
+    winner VARCHAR(30) CHECK (winner IN ('CIVILIANS', 'IMPOSTERS', 'JOKER', 'NONE', 'DRAW')),
     eliminated_player_ids JSONB DEFAULT '[]'::jsonb,
     vote_summary JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -59,15 +61,14 @@ CREATE TABLE IF NOT EXISTS public.rounds (
 );
 
 -- 5. Create Private Player Roles Table
--- Strictly protected: Players can only view their own role via get_my_private_role()
 CREATE TABLE IF NOT EXISTS public.private_player_roles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     round_id UUID NOT NULL REFERENCES public.rounds(id) ON DELETE CASCADE,
     room_id UUID NOT NULL REFERENCES public.rooms(id) ON DELETE CASCADE,
     player_id UUID NOT NULL REFERENCES public.room_players(id) ON DELETE CASCADE,
-    role VARCHAR(20) NOT NULL CHECK (role IN ('CIVILIAN', 'IMPOSTER', 'JOKER')),
-    secret_word VARCHAR(100), -- Given to Civilian & Joker
-    clue VARCHAR(100),        -- Given to Imposter
+    role VARCHAR(20) NOT NULL CHECK (role IN ('CIVILIAN', 'IMPOSTER', 'JOKER', 'HOST')),
+    secret_word VARCHAR(100),
+    clue VARCHAR(100),
     instruction TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (round_id, player_id)
@@ -103,24 +104,11 @@ ALTER TABLE public.private_player_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.votes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.topics ENABLE ROW LEVEL SECURITY;
 
--- Rooms: Public can read rooms by room_code
-CREATE POLICY "Allow public select rooms" ON public.rooms
-    FOR SELECT USING (true);
+CREATE POLICY "Allow public select rooms" ON public.rooms FOR SELECT USING (true);
+CREATE POLICY "Allow public select room_players" ON public.room_players FOR SELECT USING (true);
+CREATE POLICY "Allow public select rounds" ON public.rounds FOR SELECT USING (true);
+CREATE POLICY "Allow public select topics" ON public.topics FOR SELECT USING (true);
 
--- Room Players: Public can read player list (we create a safe view or hide player_token)
-CREATE POLICY "Allow public select room_players" ON public.room_players
-    FOR SELECT USING (true);
-
--- Rounds: Public can read round info
-CREATE POLICY "Allow public select rounds" ON public.rounds
-    FOR SELECT USING (true);
-
--- Topics: Public can read topics catalog
-CREATE POLICY "Allow public select topics" ON public.topics
-    FOR SELECT USING (true);
-
--- Private Player Roles: NEVER directly selectable by public during active rounds!
--- Only readable after round is completed for final reveal, or via get_my_private_role()
 CREATE POLICY "Allow select roles when round completed" ON public.private_player_roles
     FOR SELECT USING (
         EXISTS (
@@ -130,7 +118,6 @@ CREATE POLICY "Allow select roles when round completed" ON public.private_player
         )
     );
 
--- Votes: Public can only see vote records after round is completed
 CREATE POLICY "Allow select votes when round completed" ON public.votes
     FOR SELECT USING (
         EXISTS (
@@ -140,20 +127,19 @@ CREATE POLICY "Allow select votes when round completed" ON public.votes
         )
     );
 
--- Enable Supabase Realtime
 ALTER PUBLICATION supabase_realtime ADD TABLE public.rooms;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.room_players;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.rounds;
 
 -- ====================================================================
--- SECURE SERVER-SIDE RPC FUNCTIONS (SECURITY DEFINER)
+-- SECURE SERVER-SIDE RPC FUNCTIONS
 -- ====================================================================
 
--- Function 1: Generate unique 6-character room code
+-- Generate Room Code
 CREATE OR REPLACE FUNCTION public.generate_room_code()
 RETURNS TEXT AS $$
 DECLARE
-    chars TEXT := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; -- Omit ambiguous characters like O, 0, I, 1
+    chars TEXT := 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     result TEXT := '';
     i INT;
 BEGIN
@@ -164,7 +150,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function 2: Create a Room & Register Host
+-- 1. Create Room (Host is player_number 0 - Moderator, does not play or vote)
 CREATE OR REPLACE FUNCTION public.rpc_create_room(
     p_host_name TEXT,
     p_settings JSONB DEFAULT '{}'::jsonb
@@ -185,28 +171,24 @@ BEGIN
         RAISE EXCEPTION 'Host name must be at least 2 characters.';
     END IF;
 
-    -- Generate a unique room code
     LOOP
         v_room_code := generate_room_code();
         EXIT WHEN NOT EXISTS (SELECT 1 FROM public.rooms WHERE room_code = v_room_code);
     END LOOP;
 
-    -- Create Room
     INSERT INTO public.rooms (room_code, settings, status, current_phase)
     VALUES (v_room_code, p_settings, 'LOBBY', 'WAITING')
     RETURNING id INTO v_room_id;
 
-    -- Generate secure host token
     v_host_token := encode(gen_random_bytes(32), 'hex');
 
-    -- Insert Host as Player 1
+    -- Insert Host as slot 0 (Game Master)
     INSERT INTO public.room_players (
         room_id, player_number, player_name, avatar_index, is_host, player_token
     ) VALUES (
-        v_room_id, 1, v_clean_name, 0, true, v_host_token
+        v_room_id, 0, v_clean_name, 0, true, v_host_token
     ) RETURNING id INTO v_host_id;
 
-    -- Link Host to Room
     UPDATE public.rooms SET host_player_id = v_host_id WHERE id = v_room_id;
 
     RETURN jsonb_build_object(
@@ -215,14 +197,14 @@ BEGIN
         'room_code', v_room_code,
         'player_id', v_host_id,
         'player_token', v_host_token,
-        'player_number', 1,
+        'player_number', 0,
         'player_name', v_clean_name,
         'is_host', true
     );
 END;
 $$ LANGUAGE plpgsql;
 
--- Function 3: Join Room (Strict max 8 players, transaction safe concurrency locking)
+-- 2. Join Room (Unlimited players)
 CREATE OR REPLACE FUNCTION public.rpc_join_room(
     p_room_code TEXT,
     p_player_name TEXT
@@ -233,7 +215,7 @@ SET search_path = public
 AS $$
 DECLARE
     v_room RECORD;
-    v_player_count INT;
+    v_non_host_count INT;
     v_clean_name TEXT;
     v_player_token TEXT;
     v_player_id UUID;
@@ -245,7 +227,6 @@ BEGIN
         RAISE EXCEPTION 'Player name must be at least 2 characters.';
     END IF;
 
-    -- Lock room row for concurrency safety
     SELECT * INTO v_room 
     FROM public.rooms 
     WHERE room_code = upper(trim(p_room_code)) 
@@ -259,7 +240,6 @@ BEGIN
         RAISE EXCEPTION 'Game has already started in this room.';
     END IF;
 
-    -- Check if name already taken in room
     IF EXISTS (
         SELECT 1 FROM public.room_players 
         WHERE room_id = v_room.id AND lower(player_name) = lower(v_clean_name)
@@ -267,20 +247,15 @@ BEGIN
         RAISE EXCEPTION 'The name "%" is already taken in this room.', v_clean_name;
     END IF;
 
-    -- Count existing players
-    SELECT count(*) INTO v_player_count 
+    -- Count non-host participants
+    SELECT count(*) INTO v_non_host_count 
     FROM public.room_players 
-    WHERE room_id = v_room.id;
+    WHERE room_id = v_room.id AND is_host = false;
 
-    IF v_player_count >= 8 THEN
-        RAISE EXCEPTION 'Room is full! Maximum 8 players allowed.';
-    END IF;
-
-    v_player_number := v_player_count + 1;
-    v_avatar_index := v_player_number - 1;
+    v_player_number := v_non_host_count + 1;
+    v_avatar_index := (v_player_number - 1) % 8;
     v_player_token := encode(gen_random_bytes(32), 'hex');
 
-    -- Insert new player
     INSERT INTO public.room_players (
         room_id, player_number, player_name, avatar_index, is_host, player_token
     ) VALUES (
@@ -300,13 +275,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function 4: Start Round & Cryptographically Distribute 8 Roles (5 Civilians, 2 Imposters, 1 Joker)
+-- 3. Start Round (Assign roles dynamically to participants only; host does NOT receive playing role)
 CREATE OR REPLACE FUNCTION public.rpc_start_round(
     p_room_code TEXT,
     p_host_token TEXT,
     p_topic_mode TEXT DEFAULT 'random',
     p_manual_topic TEXT DEFAULT '',
-    p_manual_clue TEXT DEFAULT ''
+    p_manual_clue TEXT DEFAULT '',
+    p_imposter_count INT DEFAULT 0,
+    p_include_joker BOOLEAN DEFAULT true
 )
 RETURNS JSONB
 SECURITY DEFINER
@@ -322,7 +299,10 @@ DECLARE
     v_clue TEXT;
     v_topic_record RECORD;
     v_players UUID[];
-    v_roles TEXT[] := ARRAY['IMPOSTER', 'IMPOSTER', 'JOKER', 'CIVILIAN', 'CIVILIAN', 'CIVILIAN', 'CIVILIAN', 'CIVILIAN'];
+    v_num_imposters INT;
+    v_num_jokers INT := 0;
+    v_num_civilians INT;
+    v_roles TEXT[] := ARRAY[]::TEXT[];
     v_shuffled_roles TEXT[];
     v_curr_role TEXT;
     v_secret_word TEXT;
@@ -333,23 +313,24 @@ DECLARE
     j INT;
     temp TEXT;
 BEGIN
-    -- Verify Room
     SELECT * INTO v_room FROM public.rooms WHERE room_code = upper(trim(p_room_code)) FOR UPDATE;
     IF v_room IS NULL THEN
         RAISE EXCEPTION 'Room not found.';
     END IF;
 
-    -- Verify Host via token
     SELECT * INTO v_host FROM public.room_players 
     WHERE room_id = v_room.id AND player_token = p_host_token AND is_host = true;
     IF v_host IS NULL THEN
         RAISE EXCEPTION 'Unauthorized: Only the room host can start the game.';
     END IF;
 
-    -- Verify Exactly 8 Players
-    SELECT count(*) INTO v_player_count FROM public.room_players WHERE room_id = v_room.id;
-    IF v_player_count != 8 THEN
-        RAISE EXCEPTION 'Exactly 8 players are required to start the game (currently %).', v_player_count;
+    -- Count participants (excluding host)
+    SELECT count(*) INTO v_player_count 
+    FROM public.room_players 
+    WHERE room_id = v_room.id AND is_host = false;
+
+    IF v_player_count < 3 THEN
+        RAISE EXCEPTION 'At least 3 players are required to start the game (currently %).', v_player_count;
     END IF;
 
     -- Select Topic and Clue
@@ -361,56 +342,97 @@ BEGIN
         END;
         v_category := 'Custom Host Choice';
     ELSE
-        -- Pick random topic from topics table
         SELECT * INTO v_topic_record FROM public.topics ORDER BY gen_random_uuid() LIMIT 1;
         IF v_topic_record IS NOT NULL THEN
             v_topic := upper(v_topic_record.topic);
             v_category := v_topic_record.category;
             v_clue := upper(v_topic_record.clue);
         ELSE
-            -- Safe default fallback if topics table not seeded yet
             v_topic := 'PIZZA';
             v_category := 'Food & Treats';
             v_clue := 'ITALIAN';
         END IF;
     END IF;
 
-    -- Fetch array of 8 player IDs
-    SELECT array_agg(id ORDER BY player_number) INTO v_players 
-    FROM public.room_players 
-    WHERE room_id = v_room.id;
+    -- Dynamic role distribution
+    IF p_imposter_count > 0 THEN
+        v_num_imposters := least(p_imposter_count, floor(v_player_count / 2)::int);
+    ELSE
+        -- Auto: 1 for <=5 players, 2 for <=10 players, 3 for 11+
+        IF v_player_count <= 5 THEN
+            v_num_imposters := 1;
+        ELSIF v_player_count <= 10 THEN
+            v_num_imposters := 2;
+        ELSE
+            v_num_imposters := 3;
+        END IF;
+    END IF;
 
-    -- Cryptographically shuffle roles (Fisher-Yates shuffle with gen_random_bytes)
+    IF p_include_joker AND v_player_count >= 4 THEN
+        v_num_jokers := 1;
+    ELSE
+        v_num_jokers := 0;
+    END IF;
+
+    v_num_civilians := v_player_count - v_num_imposters - v_num_jokers;
+    IF v_num_civilians < 1 THEN
+        v_num_jokers := 0;
+        v_num_civilians := v_player_count - v_num_imposters;
+    END IF;
+
+    FOR i IN 1..v_num_imposters LOOP
+        v_roles := array_append(v_roles, 'IMPOSTER');
+    END LOOP;
+    FOR i IN 1..v_num_jokers LOOP
+        v_roles := array_append(v_roles, 'JOKER');
+    END LOOP;
+    FOR i IN 1..v_num_civilians LOOP
+        v_roles := array_append(v_roles, 'CIVILIAN');
+    END LOOP;
+
+    -- Cryptographic Fisher-Yates shuffle
     v_shuffled_roles := v_roles;
-    FOR i REVERSE 8..2 LOOP
-        -- Generate random integer between 1 and i using pgcrypto
+    FOR i REVERSE v_player_count..2 LOOP
         j := 1 + (abs(('x' || encode(gen_random_bytes(4), 'hex'))::bit(32)::int) % i);
         temp := v_shuffled_roles[i];
         v_shuffled_roles[i] := v_shuffled_roles[j];
         v_shuffled_roles[j] := temp;
     END LOOP;
 
+    -- Fetch participants
+    SELECT array_agg(id ORDER BY player_number) INTO v_players 
+    FROM public.room_players 
+    WHERE room_id = v_room.id AND is_host = false;
+
     -- Create Round
     INSERT INTO public.rounds (
-        room_id, round_number, topic, category, clue, status
+        room_id, round_number, topic, category, clue, status, round_result
     ) VALUES (
-        v_room.id, v_room.current_round_number, v_topic, v_category, v_clue, 'ACTIVE'
+        v_room.id, 1, v_topic, v_category, v_clue, 'ACTIVE', 'ACTIVE'
     ) RETURNING id INTO v_round_id;
 
-    -- Insert Private Roles for each player
-    FOR i IN 1..8 LOOP
+    -- Insert Host Role Record as HOST
+    INSERT INTO public.private_player_roles (
+        round_id, room_id, player_id, role, secret_word, clue, instruction
+    ) VALUES (
+        v_round_id, v_room.id, v_host.id, 'HOST', v_topic, v_clue,
+        'You are the Game Master (Host)! You do not participate in voting or play a secret role. Guide players through discussion and voting.'
+    );
+
+    -- Insert roles for participants
+    FOR i IN 1..v_player_count LOOP
         v_player_id := v_players[i];
         v_curr_role := v_shuffled_roles[i];
 
         IF v_curr_role = 'CIVILIAN' THEN
             v_secret_word := v_topic;
             v_curr_clue := NULL;
-            v_instruction := 'You are a Civilian! You know the secret word. Give subtle clues to prove you know it, and work with other civilians to identify the 2 Imposters and avoid voting for the Joker!';
+            v_instruction := 'You are a Civilian! You know the secret word. Give subtle clues to prove you know it, and work with other civilians to identify the Imposters without voting for the Joker!';
         ELSIF v_curr_role = 'IMPOSTER' THEN
             v_secret_word := NULL;
             v_curr_clue := v_clue;
             v_instruction := 'You are an Imposter! You DO NOT know the secret word, but you have received a related clue. Listen carefully to other players, pretend you know the word, and blend in without getting caught!';
-        ELSE -- JOKER
+        ELSE
             v_secret_word := v_topic;
             v_curr_clue := NULL;
             v_instruction := 'You are the Joker! You know the secret word, BUT your goal is to act suspicious and pretend you are an imposter! If the group votes you out, YOU WIN!';
@@ -423,26 +445,28 @@ BEGIN
         );
     END LOOP;
 
-    -- Reset player vote statuses
-    UPDATE public.room_players SET has_voted = false WHERE room_id = v_room.id;
+    -- Reset player vote and eliminated statuses
+    UPDATE public.room_players 
+    SET has_voted = false, is_eliminated = false 
+    WHERE room_id = v_room.id;
 
-    -- Advance Room Status & Phase
     UPDATE public.rooms 
     SET status = 'IN_GAME', 
         current_phase = 'ROLE_REVEAL',
+        current_round_number = 1,
         updated_at = now()
     WHERE id = v_room.id;
 
     RETURN jsonb_build_object(
         'success', true,
         'round_id', v_round_id,
-        'round_number', v_room.current_round_number,
+        'round_number', 1,
         'phase', 'ROLE_REVEAL'
     );
 END;
 $$ LANGUAGE plpgsql;
 
--- Function 5: Securely Fetch ONLY Calling Player's Private Role
+-- 4. Get My Private Role
 CREATE OR REPLACE FUNCTION public.rpc_get_my_private_role(
     p_room_code TEXT,
     p_player_token TEXT
@@ -457,27 +481,23 @@ DECLARE
     v_round RECORD;
     v_role RECORD;
 BEGIN
-    -- Verify room
     SELECT * INTO v_room FROM public.rooms WHERE room_code = upper(trim(p_room_code));
     IF v_room IS NULL THEN
         RAISE EXCEPTION 'Room not found.';
     END IF;
 
-    -- Authenticate player via their private token
     SELECT * INTO v_player FROM public.room_players 
     WHERE room_id = v_room.id AND player_token = p_player_token;
     IF v_player IS NULL THEN
         RAISE EXCEPTION 'Unauthorized: Invalid player token.';
     END IF;
 
-    -- Get current active round
     SELECT * INTO v_round FROM public.rounds 
     WHERE room_id = v_room.id AND round_number = v_room.current_round_number;
     IF v_round IS NULL THEN
         RETURN jsonb_build_object('has_role', false, 'message', 'Round has not started yet.');
     END IF;
 
-    -- Fetch private role for this player ONLY
     SELECT * INTO v_role FROM public.private_player_roles 
     WHERE round_id = v_round.id AND player_id = v_player.id;
     IF v_role IS NULL THEN
@@ -491,6 +511,8 @@ BEGIN
         'player_id', v_player.id,
         'player_name', v_player.player_name,
         'player_number', v_player.player_number,
+        'is_host', v_player.is_host,
+        'is_eliminated', v_player.is_eliminated,
         'role', v_role.role,
         'secret_word', v_role.secret_word,
         'clue', v_role.clue,
@@ -500,7 +522,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function 6: Set Game Phase (Host Only)
+-- 5. Set Game Phase
 CREATE OR REPLACE FUNCTION public.rpc_set_game_phase(
     p_room_code TEXT,
     p_host_token TEXT,
@@ -533,7 +555,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function 7: Submit Private Vote
+-- 6. Submit Vote
 CREATE OR REPLACE FUNCTION public.rpc_submit_vote(
     p_room_code TEXT,
     p_player_token TEXT,
@@ -548,6 +570,7 @@ DECLARE
     v_voter RECORD;
     v_target RECORD;
     v_round RECORD;
+    v_alive_count INT;
     v_total_votes INT;
 BEGIN
     SELECT * INTO v_room FROM public.rooms WHERE room_code = upper(trim(p_room_code));
@@ -555,49 +578,63 @@ BEGIN
         RAISE EXCEPTION 'Voting is not currently open.';
     END IF;
 
-    -- Authenticate voter
     SELECT * INTO v_voter FROM public.room_players 
     WHERE room_id = v_room.id AND player_token = p_player_token;
     IF v_voter IS NULL THEN
         RAISE EXCEPTION 'Unauthorized voter token.';
     END IF;
 
-    -- Validate target player
+    IF v_voter.is_host THEN
+        RAISE EXCEPTION 'Host is the moderator and cannot vote.';
+    END IF;
+
+    IF v_voter.is_eliminated THEN
+        RAISE EXCEPTION 'Eliminated players cannot vote.';
+    END IF;
+
     SELECT * INTO v_target FROM public.room_players 
     WHERE room_id = v_room.id AND id = p_target_player_id;
     IF v_target IS NULL THEN
         RAISE EXCEPTION 'Target player not found in this room.';
     END IF;
 
-    -- Rule: Cannot vote for self
+    IF v_target.is_host THEN
+        RAISE EXCEPTION 'Cannot vote for the host.';
+    END IF;
+
+    IF v_target.is_eliminated THEN
+        RAISE EXCEPTION 'Cannot vote for an already eliminated player.';
+    END IF;
+
     IF v_voter.id = v_target.id THEN
         RAISE EXCEPTION 'You cannot vote for yourself!';
     END IF;
 
-    -- Current active round
     SELECT * INTO v_round FROM public.rounds 
     WHERE room_id = v_room.id AND round_number = v_room.current_round_number;
 
-    -- Upsert vote (allow changing vote while voting is open)
     INSERT INTO public.votes (round_id, room_id, voter_player_id, target_player_id)
     VALUES (v_round.id, v_room.id, v_voter.id, v_target.id)
     ON CONFLICT (round_id, voter_player_id)
     DO UPDATE SET target_player_id = p_target_player_id;
 
-    -- Mark voter as has_voted
     UPDATE public.room_players SET has_voted = true WHERE id = v_voter.id;
+
+    SELECT count(*) INTO v_alive_count 
+    FROM public.room_players 
+    WHERE room_id = v_room.id AND is_host = false AND is_eliminated = false;
 
     SELECT count(*) INTO v_total_votes FROM public.votes WHERE round_id = v_round.id;
 
     RETURN jsonb_build_object(
         'success', true,
         'votes_cast', v_total_votes,
-        'all_voted', (v_total_votes = 8)
+        'all_voted', (v_total_votes = v_alive_count)
     );
 END;
 $$ LANGUAGE plpgsql;
 
--- Function 8: End Voting, Tally Votes, Check Victory & Reveal Results
+-- 7. End Voting, Tally Votes & Check if Imposter is Exposed
 CREATE OR REPLACE FUNCTION public.rpc_end_voting_and_tally(
     p_room_code TEXT,
     p_host_token TEXT
@@ -613,12 +650,16 @@ DECLARE
     v_vote RECORD;
     v_tally JSONB := '{}'::jsonb;
     v_max_votes INT := 0;
-    v_eliminated UUID[] := ARRAY[]::UUID[];
-    v_eliminated_roles TEXT[] := ARRAY[]::TEXT[];
+    v_highest_targets UUID[] := ARRAY[]::UUID[];
+    v_eliminated_id UUID := NULL;
+    v_eliminated_role TEXT := NULL;
     v_role_record RECORD;
-    v_winner TEXT;
-    v_joker_eliminated BOOLEAN := false;
-    v_imposters_eliminated_count INT := 0;
+    v_winner TEXT := 'NONE';
+    v_game_over BOOLEAN := false;
+    v_round_result TEXT := 'CIVILIAN_ELIMINATED';
+    v_message TEXT := '';
+    v_alive_civilians INT;
+    v_alive_imposters INT;
     v_all_roles JSONB := '[]'::jsonb;
 BEGIN
     SELECT * INTO v_room FROM public.rooms WHERE room_code = upper(trim(p_room_code)) FOR UPDATE;
@@ -635,7 +676,7 @@ BEGIN
     SELECT * INTO v_round FROM public.rounds 
     WHERE room_id = v_room.id AND round_number = v_room.current_round_number;
 
-    -- Tally votes per target
+    -- Tally votes
     FOR v_vote IN 
         SELECT target_player_id, count(*)::int as count 
         FROM public.votes 
@@ -646,88 +687,130 @@ BEGIN
         v_tally := v_tally || jsonb_build_object(v_vote.target_player_id::text, v_vote.count);
         IF v_vote.count > v_max_votes THEN
             v_max_votes := v_vote.count;
-            v_eliminated := ARRAY[v_vote.target_player_id];
+            v_highest_targets := ARRAY[v_vote.target_player_id];
         ELSIF v_vote.count = v_max_votes THEN
-            v_eliminated := array_append(v_eliminated, v_vote.target_player_id);
+            v_highest_targets := array_append(v_highest_targets, v_vote.target_player_id);
         END IF;
     END LOOP;
 
-    -- Inspect roles of eliminated player(s)
-    FOR i IN 1..coalesce(array_length(v_eliminated, 1), 0) LOOP
+    -- Determine single eliminated player (if no tie)
+    IF array_length(v_highest_targets, 1) = 1 AND v_max_votes > 0 THEN
+        v_eliminated_id := v_highest_targets[1];
+        UPDATE public.room_players SET is_eliminated = true WHERE id = v_eliminated_id;
+
         SELECT * INTO v_role_record 
         FROM public.private_player_roles 
-        WHERE round_id = v_round.id AND player_id = v_eliminated[i];
-
-        IF v_role_record.role = 'JOKER' THEN
-            v_joker_eliminated := true;
-        ELSIF v_role_record.role = 'IMPOSTER' THEN
-            v_imposters_eliminated_count := v_imposters_eliminated_count + 1;
-        END IF;
-        v_eliminated_roles := array_append(v_eliminated_roles, v_role_record.role);
-    END LOOP;
-
-    -- Victory Condition Calculation:
-    -- 1. Joker wins if voted out!
-    -- 2. Civilians win if both imposters eliminated (or 1 imposter in single tie).
-    -- 3. Imposters win if they survive without Joker or both imposters voted out.
-    IF v_joker_eliminated THEN
-        v_winner := 'JOKER';
-    ELSIF v_imposters_eliminated_count >= 2 THEN
-        v_winner := 'CIVILIANS';
-    ELSIF v_imposters_eliminated_count = 1 AND array_length(v_eliminated, 1) = 1 THEN
-        -- If 1 imposter is caught out of 2, civilians eliminated an imposter!
-        v_winner := 'CIVILIANS';
-    ELSE
-        v_winner := 'IMPOSTERS';
+        WHERE round_id = v_round.id AND player_id = v_eliminated_id;
+        v_eliminated_role := v_role_record.role;
     END IF;
 
-    -- Compile public reveal of all 8 roles now that round is finished
+    -- Outcome Evaluation
+    IF v_eliminated_role = 'JOKER' THEN
+        v_winner := 'JOKER';
+        v_game_over := true;
+        v_round_result := 'JOKER_ELIMINATED';
+        v_message := '🃏 The Joker was voted out and wins the game through trickery!';
+    ELSIF v_eliminated_role = 'IMPOSTER' THEN
+        -- Check if any other imposters remain alive
+        SELECT count(*) INTO v_alive_imposters
+        FROM public.room_players p
+        JOIN public.private_player_roles r ON r.player_id = p.id AND r.round_id = v_round.id
+        WHERE p.room_id = v_room.id AND p.is_host = false AND p.is_eliminated = false AND r.role = 'IMPOSTER';
+
+        v_round_result := 'IMPOSTER_EXPOSED';
+
+        IF v_alive_imposters = 0 THEN
+            v_winner := 'CIVILIANS';
+            v_game_over := true;
+            v_message := '🚨 IMPOSTER EXPOSED! Civilians have caught the imposter and won!';
+        ELSE
+            v_winner := 'NONE';
+            v_game_over := false;
+            v_message := '🚨 An Imposter was exposed! The remaining imposter is still at large!';
+        END IF;
+    ELSIF v_eliminated_role = 'CIVILIAN' THEN
+        v_round_result := 'CIVILIAN_ELIMINATED';
+
+        SELECT count(*) INTO v_alive_civilians
+        FROM public.room_players p
+        JOIN public.private_player_roles r ON r.player_id = p.id AND r.round_id = v_round.id
+        WHERE p.room_id = v_room.id AND p.is_host = false AND p.is_eliminated = false AND r.role = 'CIVILIAN';
+
+        SELECT count(*) INTO v_alive_imposters
+        FROM public.room_players p
+        JOIN public.private_player_roles r ON r.player_id = p.id AND r.round_id = v_round.id
+        WHERE p.room_id = v_room.id AND p.is_host = false AND p.is_eliminated = false AND r.role = 'IMPOSTER';
+
+        IF v_alive_civilians <= v_alive_imposters THEN
+            v_winner := 'IMPOSTERS';
+            v_game_over := true;
+            v_message := '🚨 Imposters have reached parity with Civilians! Imposters Win!';
+        ELSE
+            v_winner := 'NONE';
+            v_game_over := false;
+            v_message := '🚨 An Innocent Civilian was voted out! The Imposter is still at large! Round continues!';
+        END IF;
+    ELSE
+        -- Tie
+        v_round_result := 'TIE_SURVIVED';
+        v_winner := 'NONE';
+        v_game_over := false;
+        v_message := '⚖️ Voting tied! Nobody was eliminated this round. The Imposter is still at large!';
+    END IF;
+
+    -- Compile roles summary
     SELECT jsonb_agg(
         jsonb_build_object(
-            'player_id', r.player_id,
+            'player_id', p.id,
             'player_name', p.player_name,
             'player_number', p.player_number,
             'avatar_index', p.avatar_index,
-            'role', r.role,
+            'is_host', p.is_host,
+            'role', coalesce(r.role, CASE WHEN p.is_host THEN 'HOST' ELSE 'CIVILIAN' END),
             'secret_word', r.secret_word,
             'clue', r.clue,
-            'is_eliminated', (r.player_id = ANY(v_eliminated)),
-            'votes_received', coalesce((v_tally->>(r.player_id::text))::int, 0)
+            'is_eliminated', p.is_eliminated,
+            'is_just_eliminated', (p.id = v_eliminated_id),
+            'votes_received', coalesce((v_tally->>(p.id::text))::int, 0)
         ) ORDER BY p.player_number
     ) INTO v_all_roles
-    FROM public.private_player_roles r
-    JOIN public.room_players p ON p.id = r.player_id
-    WHERE r.round_id = v_round.id;
+    FROM public.room_players p
+    LEFT JOIN public.private_player_roles r ON r.player_id = p.id AND r.round_id = v_round.id
+    WHERE p.room_id = v_room.id;
 
-    -- Update round record
     UPDATE public.rounds 
-    SET status = 'COMPLETED',
+    SET status = CASE WHEN v_game_over THEN 'COMPLETED' ELSE 'ACTIVE' END,
         winner = v_winner,
-        eliminated_player_ids = to_jsonb(v_eliminated),
+        round_result = v_round_result,
         vote_summary = v_tally
     WHERE id = v_round.id;
 
-    -- Transition room to RESULTS
     UPDATE public.rooms 
-    SET current_phase = 'RESULTS', updated_at = now() 
+    SET current_phase = 'RESULTS',
+        status = CASE WHEN v_game_over THEN 'FINISHED' ELSE 'IN_GAME' END,
+        updated_at = now()
     WHERE id = v_room.id;
 
     RETURN jsonb_build_object(
         'success', true,
         'winner', v_winner,
+        'game_over', v_game_over,
+        'round_number', v_round.round_number,
+        'round_result', v_round_result,
+        'message', v_message,
         'topic', v_round.topic,
         'clue', v_round.clue,
         'category', v_round.category,
-        'eliminated_player_ids', v_eliminated,
-        'eliminated_roles', v_eliminated_roles,
+        'eliminated_player_id', v_eliminated_id,
+        'eliminated_role', v_eliminated_role,
         'vote_summary', v_tally,
         'all_roles', v_all_roles
     );
 END;
 $$ LANGUAGE plpgsql;
 
--- Function 9: Start New Round (Same 8 Players, increment round number)
-CREATE OR REPLACE FUNCTION public.rpc_start_next_round(
+-- 8. Proceed to Next Investigation Round (Round 2, 3... same topic until imposter exposed)
+CREATE OR REPLACE FUNCTION public.rpc_proceed_to_next_round(
     p_room_code TEXT,
     p_host_token TEXT
 )
@@ -753,22 +836,61 @@ BEGIN
 
     v_next_round := v_room.current_round_number + 1;
 
-    -- Reset room state for new round
     UPDATE public.rooms 
     SET current_round_number = v_next_round,
+        current_phase = 'DISCUSSION',
+        updated_at = now()
+    WHERE id = v_room.id;
+
+    -- Reset votes for next round
+    UPDATE public.room_players SET has_voted = false WHERE room_id = v_room.id;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'round_number', v_next_round,
+        'phase', 'DISCUSSION'
+    );
+END;
+$$ LANGUAGE plpgsql;
+
+-- 9. Start Brand New Match (Resets lobby for new topic)
+CREATE OR REPLACE FUNCTION public.rpc_start_next_round(
+    p_room_code TEXT,
+    p_host_token TEXT
+)
+RETURNS JSONB
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_room RECORD;
+    v_host RECORD;
+BEGIN
+    SELECT * INTO v_room FROM public.rooms WHERE room_code = upper(trim(p_room_code)) FOR UPDATE;
+    IF v_room IS NULL THEN
+        RAISE EXCEPTION 'Room not found.';
+    END IF;
+
+    SELECT * INTO v_host FROM public.room_players 
+    WHERE room_id = v_room.id AND player_token = p_host_token AND is_host = true;
+    IF v_host IS NULL THEN
+        RAISE EXCEPTION 'Unauthorized.';
+    END IF;
+
+    UPDATE public.rooms 
+    SET current_round_number = 1,
         current_phase = 'WAITING',
         status = 'LOBBY',
         updated_at = now()
     WHERE id = v_room.id;
 
-    -- Reset players voted status
     UPDATE public.room_players 
-    SET has_voted = false 
+    SET has_voted = false, is_eliminated = false 
     WHERE room_id = v_room.id;
 
     RETURN jsonb_build_object(
         'success', true,
-        'next_round_number', v_next_round
+        'next_round_number', 1
     );
 END;
 $$ LANGUAGE plpgsql;

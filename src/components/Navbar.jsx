@@ -51,7 +51,7 @@ export default function Navbar({
               </span>
             </div>
             <p className="text-[11px] text-slate-400 hidden sm:block">
-              8 Players • 5 Civilians • 2 Imposters • 1 Joker
+              Host is Game Master • Multi-Round Investigation • Unlimited Players
             </p>
           </div>
         </div>

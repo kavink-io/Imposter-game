@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PlusCircle, ArrowLeft, User, Clock, AlertCircle } from 'lucide-react';
+import { PlusCircle, ArrowLeft, User, Clock, AlertCircle, Crown } from 'lucide-react';
 import { sounds } from '../lib/audio';
 
 export default function CreateRoomView({ onBack, onCreateRoom, isLoading }) {
@@ -37,9 +37,12 @@ export default function CreateRoomView({ onBack, onCreateRoom, isLoading }) {
 
       <div className="p-6 sm:p-8 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-2xl space-y-6">
         <div>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold mb-2">
+            <Crown className="w-3.5 h-3.5 fill-amber-400" /> Game Master Role
+          </div>
           <h2 className="text-2xl font-black text-white">Create a Game Room</h2>
           <p className="text-xs text-slate-400 mt-1">
-            You will become the room host (Player #1).
+            You will become the Room Host (Game Master). You will coordinate rounds, timers, and voting without playing a role or voting.
           </p>
         </div>
 
@@ -47,11 +50,11 @@ export default function CreateRoomView({ onBack, onCreateRoom, isLoading }) {
           <div>
             <label className="text-xs font-bold text-slate-300 block mb-1.5 flex items-center gap-1.5">
               <User className="w-3.5 h-3.5 text-purple-400" />
-              Your Display Name:
+              Your Game Master Name:
             </label>
             <input
               type="text"
-              placeholder="e.g. Host Kavin K"
+              placeholder="e.g. Alex, Jordan, Sarah..."
               value={hostName}
               onChange={(e) => setHostName(e.target.value)}
               className="w-full px-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 text-sm text-white focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition"

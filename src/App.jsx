@@ -18,7 +18,12 @@ const DEMO_FILL_NAMES = [
   'Liam O.',
   'Elena R.',
   'Jordan T.',
-  'Maya L.'
+  'Maya L.',
+  'David K.',
+  'Chloe W.',
+  'Kai N.',
+  'Zoe B.',
+  'Ethan M.'
 ];
 
 export default function App() {
@@ -71,7 +76,6 @@ export default function App() {
   useEffect(() => {
     if (!room?.room_code) return;
 
-    // Unsubscribe previous if exists
     if (unsubscribeRef.current) {
       unsubscribeRef.current();
     }
@@ -112,7 +116,7 @@ export default function App() {
     }
   }, [room?.current_phase, room?.current_round_number, currentPlayer?.player_token]);
 
-  // 1. Create Room
+  // 1. Create Room (Host creates room as Moderator)
   const handleCreateRoom = async ({ hostName, settings }) => {
     setIsLoading(true);
     try {
@@ -120,7 +124,7 @@ export default function App() {
       const playerObj = {
         id: data.player_id,
         player_name: data.player_name,
-        player_number: data.player_number,
+        player_number: data.player_number, // 0 for host
         player_token: data.player_token,
         is_host: true
       };
@@ -137,7 +141,7 @@ export default function App() {
     }
   };
 
-  // 2. Join Room
+  // 2. Join Room (Participant joining)
   const handleJoinRoom = async ({ roomCode, playerName }) => {
     setIsLoading(true);
     try {
@@ -162,17 +166,15 @@ export default function App() {
     }
   };
 
-  // 3. Start Round (Host only, strictly 8 players)
-  const handleStartRound = async ({ topicMode, selectedCategory, manualTopic, manualClue }) => {
+  // 3. Start Round (Host only, minimum 3 participants, no max limit!)
+  const handleStartRound = async (options) => {
     if (!room || !currentPlayer?.player_token) return;
     setIsLoading(true);
     try {
       await gameEngine.startRound(
         room.room_code,
         currentPlayer.player_token,
-        topicMode,
-        manualTopic,
-        manualClue
+        options
       );
       const roomState = await gameEngine.getRoomState(room.room_code);
       setRoom(roomState);
@@ -227,7 +229,28 @@ export default function App() {
     }
   };
 
-  // 7. Start Next Round (Round 2, 3...)
+  // 7. Proceed to Next Investigation Round (Round 2, 3... until imposter exposed!)
+  const handleProceedToNextRound = async () => {
+    if (!room || !currentPlayer?.player_token) return;
+    setIsLoading(true);
+    try {
+      await gameEngine.proceedToNextInvestigationRound(room.room_code, currentPlayer.player_token);
+      const roomState = await gameEngine.getRoomState(room.room_code);
+      setRoom(roomState);
+      setRoundResults(null);
+      setView('game');
+
+      // Refresh role data
+      const myRole = await gameEngine.getMyPrivateRole(room.room_code, currentPlayer.player_token);
+      setRoleData(myRole);
+    } catch (err) {
+      alert(err.message || 'Error proceeding to next round.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 8. Start Brand New Match (Fresh game with new topic)
   const handleStartNextRound = async () => {
     if (!room || !currentPlayer?.player_token) return;
     setIsLoading(true);
@@ -239,22 +262,21 @@ export default function App() {
       setRoundResults(null);
       setView('lobby');
     } catch (err) {
-      alert(err.message || 'Error starting next round.');
+      alert(err.message || 'Error starting new match.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // 8. Auto-fill remaining players to 8 for fast local testing
-  const handleQuickFillRemaining = async () => {
+  // 9. Quick Add Players in Testing Dock
+  const handleAddPlayers = async (count = 1) => {
     if (!room) return;
     setIsLoading(true);
     try {
-      const existingCount = room.players?.length || 1;
-      const needed = 8 - existingCount;
-
-      for (let i = 0; i < needed; i++) {
-        const name = DEMO_FILL_NAMES[i] || `Player ${existingCount + i + 1}`;
+      const nonHostCount = room.players?.filter(p => !p.is_host).length || 0;
+      for (let i = 0; i < count; i++) {
+        const nameIdx = (nonHostCount + i) % DEMO_FILL_NAMES.length;
+        const name = `${DEMO_FILL_NAMES[nameIdx]} (${nonHostCount + i + 1})`;
         await gameEngine.joinRoom(room.room_code, name);
       }
 
@@ -262,15 +284,14 @@ export default function App() {
       setRoom(roomState);
       sounds.playVictory();
     } catch (err) {
-      alert(err.message || 'Error auto-filling players.');
+      alert(err.message || 'Error adding player.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // 9. Switch player perspective in testing dock
+  // 10. Switch player perspective in testing dock
   const handleSwitchPlayer = async (targetPlayer) => {
-    // Look up token from stored state if in local mode
     let token = targetPlayer.player_token;
     if (!token && room?.room_code) {
       try {
@@ -294,7 +315,7 @@ export default function App() {
     }
   };
 
-  // 10. Leave Room
+  // 11. Leave Room
   const handleLeaveRoom = () => {
     if (window.confirm('Are you sure you want to leave the room?')) {
       sounds.playClick();
@@ -354,6 +375,7 @@ export default function App() {
             currentPlayer={currentPlayer}
             isHost={isHost}
             onStartRound={handleStartRound}
+            onAddPlayers={handleAddPlayers}
             isLoading={isLoading}
           />
         )}
@@ -376,19 +398,22 @@ export default function App() {
             results={roundResults}
             room={room}
             isHost={isHost}
+            currentPlayer={currentPlayer}
+            onProceedToNextRound={handleProceedToNextRound}
             onStartNextRound={handleStartNextRound}
             isLoading={isLoading}
           />
         )}
       </main>
 
-      {/* 8-Player Testing Dock for instant multiplayer testing */}
+      {/* Testing Dock for multi-player simulation */}
       {room && (
         <MultiPlayerSimulator
           room={room}
           currentPlayer={currentPlayer}
           onSwitchPlayer={handleSwitchPlayer}
-          onQuickFillRemaining={handleQuickFillRemaining}
+          onAddPlayer={() => handleAddPlayers(1)}
+          onAddFourPlayers={() => handleAddPlayers(4)}
           isLoading={isLoading}
         />
       )}
@@ -402,8 +427,8 @@ export default function App() {
       {/* Footer */}
       <footer className="border-t border-slate-900 py-4 text-center text-xs text-slate-500">
         <div className="max-w-6xl mx-auto px-4 flex flex-wrap items-center justify-between gap-2">
-          <span>Imposter Party 🎭 • Real-Time 8-Player Social Deduction Game</span>
-          <span>5 Civilians • 2 Imposters • 1 Joker • Built with React & Supabase</span>
+          <span>Imposter Party 🎭 • Real-Time Social Deduction Game</span>
+          <span>Host is Game Master • Multiple Rounds Until Imposter Exposed • Unlimited Players</span>
         </div>
       </footer>
     </div>

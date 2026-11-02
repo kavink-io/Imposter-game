@@ -69,6 +69,7 @@ export const gameEngine = {
 
   /**
    * Create a new room
+   * Host is the Game Master / Moderator and does NOT receive a playing role or vote
    */
   async createRoom(hostName, settings = {}) {
     if (isSupabaseConfigured && supabase) {
@@ -83,7 +84,7 @@ export const gameEngine = {
     // Local / Offline Simulation
     const roomCode = generateCode();
     const hostToken = generateRandomToken();
-    const hostId = `player-1-${Date.now()}`;
+    const hostId = `host-${Date.now()}`;
 
     const initialRoom = {
       room_id: `room-${Date.now()}`,
@@ -95,17 +96,20 @@ export const gameEngine = {
         topicMode: settings.topicMode || 'random',
         category: settings.category || 'all',
         discussionTime: settings.discussionTime || 180,
+        imposterCount: settings.imposterCount || 'auto',
+        includeJoker: settings.includeJoker !== undefined ? settings.includeJoker : true,
         ...settings
       },
       host_player_id: hostId,
       players: [
         {
           id: hostId,
-          player_number: 1,
+          player_number: 0, // Host is slot 0 (Game Master)
           player_name: hostName.trim(),
           avatar_index: 0,
           is_host: true,
           is_connected: true,
+          is_eliminated: false,
           player_token: hostToken,
           has_voted: false
         }
@@ -123,7 +127,7 @@ export const gameEngine = {
       room_code: roomCode,
       player_id: hostId,
       player_token: hostToken,
-      player_number: 1,
+      player_number: 0,
       player_name: hostName.trim(),
       is_host: true
     };
@@ -131,6 +135,7 @@ export const gameEngine = {
 
   /**
    * Join an existing room
+   * Unlimited players supported! (Minimum 3 to start)
    */
   async joinRoom(roomCode, playerName) {
     const cleanCode = roomCode.toUpperCase().trim();
@@ -155,25 +160,24 @@ export const gameEngine = {
       throw new Error('Game has already started in this room.');
     }
 
-    if (room.players.length >= 8) {
-      throw new Error('Room is full! Exactly 8 players maximum.');
-    }
-
     if (room.players.some(p => p.player_name.toLowerCase() === cleanName.toLowerCase())) {
       throw new Error(`The name "${cleanName}" is already taken in this room.`);
     }
 
+    // Non-host players count
+    const nonHostCount = room.players.filter(p => !p.is_host).length;
     const playerToken = generateRandomToken();
-    const playerNumber = room.players.length + 1;
+    const playerNumber = nonHostCount + 1;
     const playerId = `player-${playerNumber}-${Date.now()}`;
 
     const newPlayer = {
       id: playerId,
       player_number: playerNumber,
       player_name: cleanName,
-      avatar_index: playerNumber - 1,
+      avatar_index: (playerNumber - 1) % 8,
       is_host: false,
       is_connected: true,
+      is_eliminated: false,
       player_token: playerToken,
       has_voted: false
     };
@@ -210,7 +214,7 @@ export const gameEngine = {
 
       const { data: players, error: playersErr } = await supabase
         .from('room_players')
-        .select('id, player_number, player_name, avatar_index, is_host, is_connected, has_voted')
+        .select('id, player_number, player_name, avatar_index, is_host, is_connected, is_eliminated, has_voted')
         .eq('room_id', room.id)
         .order('player_number', { ascending: true });
 
@@ -233,16 +237,25 @@ export const gameEngine = {
     if (!room) throw new Error('Room not found');
     return {
       ...room,
-      // Strip tokens from public players view for security parity
       players: room.players.map(({ player_token, ...rest }) => rest)
     };
   },
 
   /**
-   * Start a new round with exactly 8 players & 5 Civilians, 2 Imposters, 1 Joker
+   * Start a new match / round
+   * Host does NOT receive any role! Only joined non-host players receive roles.
+   * Dynamic roles based on number of players (minimum 3 players, no maximum limit!)
    */
-  async startRound(roomCode, hostToken, topicMode = 'random', manualTopic = '', manualClue = '') {
+  async startRound(roomCode, hostToken, options = {}) {
     const cleanCode = roomCode.toUpperCase().trim();
+    const {
+      topicMode = 'random',
+      selectedCategory = 'all',
+      manualTopic = '',
+      manualClue = '',
+      imposterCount = 'auto',
+      includeJoker = true
+    } = options;
 
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase.rpc('rpc_start_round', {
@@ -250,7 +263,9 @@ export const gameEngine = {
         p_host_token: hostToken,
         p_topic_mode: topicMode,
         p_manual_topic: manualTopic,
-        p_manual_clue: manualClue
+        p_manual_clue: manualClue,
+        p_imposter_count: imposterCount === 'auto' ? 0 : Number(imposterCount),
+        p_include_joker: Boolean(includeJoker)
       });
       if (error) throw new Error(error.message);
       return data;
@@ -263,39 +278,73 @@ export const gameEngine = {
     const host = room.players.find(p => p.player_token === hostToken && p.is_host);
     if (!host) throw new Error('Unauthorized: Only host can start the game.');
 
-    if (room.players.length !== 8) {
-      throw new Error(`Exactly 8 players are required to start the game (currently ${room.players.length}).`);
+    const participants = room.players.filter(p => !p.is_host);
+    if (participants.length < 3) {
+      throw new Error(`At least 3 players are required to start the game (currently ${participants.length}).`);
     }
 
     // Select topic & clue
-    let selectedTopic, selectedClue, selectedCategory;
+    let selectedTopic, selectedClue, catName;
     if (topicMode === 'manual' && manualTopic.trim()) {
       selectedTopic = manualTopic.trim().toUpperCase();
       selectedClue = manualClue.trim().toUpperCase() || 'HOST CLUE';
-      selectedCategory = 'Custom Topic';
+      catName = 'Custom Host Topic';
     } else {
-      const picked = getRandomTopic(room.settings?.category || 'all');
+      const picked = getRandomTopic(selectedCategory || room.settings?.category || 'all');
       selectedTopic = picked.topic;
       selectedClue = picked.clue;
-      selectedCategory = picked.category;
+      catName = picked.category;
     }
 
-    // Assign roles: exactly 5 Civilians, 2 Imposters, 1 Joker
-    const rolePool = ['IMPOSTER', 'IMPOSTER', 'JOKER', 'CIVILIAN', 'CIVILIAN', 'CIVILIAN', 'CIVILIAN', 'CIVILIAN'];
+    // Dynamic role calculation for participants
+    const totalPlayers = participants.length;
+    let numImposters;
+    if (imposterCount !== 'auto' && Number(imposterCount) >= 1) {
+      numImposters = Math.min(Number(imposterCount), Math.floor(totalPlayers / 2));
+    } else {
+      // Auto: 1 imposter for 3-5 players, 2 for 6-10 players, 3 for 11+ players
+      numImposters = totalPlayers <= 5 ? 1 : totalPlayers <= 10 ? 2 : 3;
+    }
+
+    let hasJoker = Boolean(includeJoker) && totalPlayers >= 4;
+    let numJokers = hasJoker ? 1 : 0;
+    let numCivilians = totalPlayers - numImposters - numJokers;
+
+    // Safety fallback
+    if (numCivilians < 1) {
+      numJokers = 0;
+      numCivilians = totalPlayers - numImposters;
+    }
+
+    const rolePool = [];
+    for (let i = 0; i < numImposters; i++) rolePool.push('IMPOSTER');
+    for (let i = 0; i < numJokers; i++) rolePool.push('JOKER');
+    for (let i = 0; i < numCivilians; i++) rolePool.push('CIVILIAN');
+
     const shuffledRoles = cryptoShuffle(rolePool);
 
     const privateRoles = {};
-    room.players.forEach((player, idx) => {
+    // Host role representation: Host is Game Master
+    privateRoles[host.id] = {
+      role: 'HOST',
+      secret_word: selectedTopic,
+      clue: selectedClue,
+      category: catName,
+      instruction: 'You are the Game Master (Host)! You do not participate in voting or play a secret role. Guide players through discussion and voting.'
+    };
+
+    // Assign roles to participants only
+    participants.forEach((player, idx) => {
       const role = shuffledRoles[idx];
       privateRoles[player.id] = {
         role,
         secret_word: role === 'IMPOSTER' ? null : selectedTopic,
         clue: role === 'IMPOSTER' ? selectedClue : null,
-        category: selectedCategory,
+        category: catName,
         instruction: role === 'CIVILIAN'
-          ? 'You are a Civilian! You know the secret word. Give subtle clues to prove you know it, and work with other civilians to identify the 2 Imposters and avoid voting for the Joker!'
+          ? 'You are a Civilian! You know the secret word. Give subtle clues to prove you know it, and work with other civilians to identify the Imposter without voting for the Joker!'
           : role === 'IMPOSTER'
-          ? 'You are an Imposter! You DO NOT know the secret word, but you have received a related clue. Listen carefully to other players, pretend you know the word, and blend in without getting caught!'
+          ? 'You are an Imposter! You DO NOT know the secret word, but you have received a related clue. Listen carefully to other players, pretend you know the word, and blend in without getting exposed!'
           : 'You are the Joker! You know the secret word, BUT your goal is to act suspicious and pretend you are an imposter! If the group votes you out, YOU WIN!'
       };
     });
@@ -303,30 +352,37 @@ export const gameEngine = {
     const roundId = `round-${room.current_round_number}-${Date.now()}`;
     room.current_round = {
       id: roundId,
-      round_number: room.current_round_number,
+      round_number: 1,
       topic: selectedTopic,
-      category: selectedCategory,
+      category: catName,
       clue: selectedClue,
+      num_imposters: numImposters,
       status: 'ACTIVE',
+      all_eliminated_player_ids: [],
       privateRoles
     };
+    room.current_round_number = 1;
     room.status = 'IN_GAME';
     room.current_phase = 'ROLE_REVEAL';
     room.votes = {};
-    room.players.forEach(p => p.has_voted = false);
+    room.players.forEach(p => {
+      p.is_eliminated = false;
+      p.has_voted = false;
+    });
 
     saveLocalState(cleanCode, room);
 
     return {
       success: true,
       round_id: roundId,
-      round_number: room.current_round_number,
+      round_number: 1,
       phase: 'ROLE_REVEAL'
     };
   },
 
   /**
    * Securely retrieve the caller's private role card
+   * Host gets Game Master overview card; players get their secret role card.
    */
   async getMyPrivateRole(roomCode, playerToken) {
     const cleanCode = roomCode.toUpperCase().trim();
@@ -357,10 +413,12 @@ export const gameEngine = {
     return {
       has_role: true,
       round_id: room.current_round.id,
-      round_number: room.current_round.round_number,
+      round_number: room.current_round_number,
       player_id: player.id,
       player_name: player.player_name,
       player_number: player.player_number,
+      is_host: player.is_host,
+      is_eliminated: player.is_eliminated,
       role: roleData.role,
       secret_word: roleData.secret_word,
       clue: roleData.clue,
@@ -400,6 +458,12 @@ export const gameEngine = {
 
   /**
    * Submit private vote
+   * Rules:
+   * - Host cannot vote
+   * - Eliminated players cannot vote
+   * - Cannot vote for host
+   * - Cannot vote for eliminated player
+   * - Cannot vote for self
    */
   async submitVote(roomCode, playerToken, targetPlayerId) {
     const cleanCode = roomCode.toUpperCase().trim();
@@ -422,6 +486,25 @@ export const gameEngine = {
     const voter = room.players.find(p => p.player_token === playerToken);
     if (!voter) throw new Error('Unauthorized voter token.');
 
+    if (voter.is_host) {
+      throw new Error('Host is the moderator and does not vote.');
+    }
+
+    if (voter.is_eliminated) {
+      throw new Error('Eliminated players cannot vote.');
+    }
+
+    const target = room.players.find(p => p.id === targetPlayerId);
+    if (!target) throw new Error('Target player not found.');
+
+    if (target.is_host) {
+      throw new Error('Host cannot be voted for.');
+    }
+
+    if (target.is_eliminated) {
+      throw new Error('Cannot vote for an already eliminated player.');
+    }
+
     if (voter.id === targetPlayerId) {
       throw new Error('You cannot vote for yourself!');
     }
@@ -432,16 +515,24 @@ export const gameEngine = {
 
     saveLocalState(cleanCode, room);
 
+    const aliveVoters = room.players.filter(p => !p.is_host && !p.is_eliminated);
     const totalVotes = Object.keys(room.votes).length;
+    const allVoted = aliveVoters.every(p => room.votes[p.id]);
+
     return {
       success: true,
       votes_cast: totalVotes,
-      all_voted: totalVotes === 8
+      all_voted: allVoted
     };
   },
 
   /**
-   * End voting, tally results, determine winner & reveal all roles
+   * End voting, tally results, and check if Imposter was exposed
+   * KEY FEATURE: Multiple rounds are conducted until the imposter is exposed!
+   * - If Joker voted out -> Joker wins! Game over.
+   * - If Imposter voted out -> Imposter exposed! Civilians win! Game over.
+   * - If Civilian voted out -> Imposter is NOT exposed! Civilian eliminated. Game continues to Next Round!
+   * - If Parity reached (alive Civilians <= alive Imposters) -> Imposters win! Game over.
    */
   async endVotingAndTally(roomCode, hostToken) {
     const cleanCode = roomCode.toUpperCase().trim();
@@ -465,7 +556,7 @@ export const gameEngine = {
     const votes = room.votes || {};
     const tally = {};
     let maxVotes = 0;
-    let eliminatedIds = [];
+    let highestVotedTargets = [];
 
     // Count votes
     Object.values(votes).forEach(targetId => {
@@ -475,56 +566,116 @@ export const gameEngine = {
     Object.entries(tally).forEach(([targetId, count]) => {
       if (count > maxVotes) {
         maxVotes = count;
-        eliminatedIds = [targetId];
+        highestVotedTargets = [targetId];
       } else if (count === maxVotes) {
-        eliminatedIds.push(targetId);
+        highestVotedTargets.push(targetId);
       }
     });
 
-    // Determine victory
-    let jokerEliminated = false;
-    let impostersEliminatedCount = 0;
-    const eliminatedRoles = [];
+    let eliminatedPlayerId = null;
+    let eliminatedRole = null;
+    let isTie = false;
 
-    eliminatedIds.forEach(id => {
-      const role = room.current_round.privateRoles[id]?.role;
-      eliminatedRoles.push(role);
-      if (role === 'JOKER') jokerEliminated = true;
-      if (role === 'IMPOSTER') impostersEliminatedCount++;
-    });
-
-    let winner;
-    if (jokerEliminated) {
-      winner = 'JOKER';
-    } else if (impostersEliminatedCount >= 2 || (impostersEliminatedCount === 1 && eliminatedIds.length === 1)) {
-      winner = 'CIVILIANS';
+    if (highestVotedTargets.length === 1 && maxVotes > 0) {
+      eliminatedPlayerId = highestVotedTargets[0];
+      const p = room.players.find(x => x.id === eliminatedPlayerId);
+      if (p) {
+        p.is_eliminated = true;
+        if (!room.current_round.all_eliminated_player_ids) room.current_round.all_eliminated_player_ids = [];
+        room.current_round.all_eliminated_player_ids.push(eliminatedPlayerId);
+      }
+      eliminatedRole = room.current_round.privateRoles[eliminatedPlayerId]?.role;
     } else {
-      winner = 'IMPOSTERS';
+      isTie = true;
+    }
+
+    // Evaluate Victory / Round Outcome:
+    let winner = 'NONE';
+    let gameOver = false;
+    let roundResult = 'CIVILIAN_ELIMINATED';
+    let message = '';
+
+    if (eliminatedRole === 'JOKER') {
+      winner = 'JOKER';
+      gameOver = true;
+      roundResult = 'JOKER_ELIMINATED';
+      message = '🃏 The Joker was voted out and wins the game through masterful deception!';
+    } else if (eliminatedRole === 'IMPOSTER') {
+      // Imposter exposed!
+      roundResult = 'IMPOSTER_EXPOSED';
+      
+      // Check if any other imposters are still alive
+      const remainingAliveImposters = room.players.filter(p => 
+        !p.is_host && !p.is_eliminated && room.current_round.privateRoles[p.id]?.role === 'IMPOSTER'
+      );
+
+      if (remainingAliveImposters.length === 0) {
+        winner = 'CIVILIANS';
+        gameOver = true;
+        message = '🚨 IMPOSTER EXPOSED! Civilians have caught the imposter and won the game!';
+      } else {
+        // Multiple imposters game, 1 caught but more remain
+        winner = 'NONE';
+        gameOver = false;
+        message = `🚨 An Imposter was exposed! However, ${remainingAliveImposters.length} imposter is still at large! The hunt continues!`;
+      }
+    } else if (eliminatedRole === 'CIVILIAN') {
+      roundResult = 'CIVILIAN_ELIMINATED';
+      // An innocent civilian was voted out! Check parity with imposters
+      const aliveCivilians = room.players.filter(p => 
+        !p.is_host && !p.is_eliminated && room.current_round.privateRoles[p.id]?.role === 'CIVILIAN'
+      );
+      const aliveImposters = room.players.filter(p => 
+        !p.is_host && !p.is_eliminated && room.current_round.privateRoles[p.id]?.role === 'IMPOSTER'
+      );
+
+      if (aliveCivilians.length <= aliveImposters.length) {
+        winner = 'IMPOSTERS';
+        gameOver = true;
+        message = '🚨 The Imposters have reached parity with Civilians! The Imposters Win!';
+      } else {
+        winner = 'NONE';
+        gameOver = false;
+        message = '🚨 An Innocent Civilian was voted out! The Imposter is still at large! Moving to the next round of investigation...';
+      }
+    } else {
+      // Tie / No one eliminated
+      roundResult = 'TIE_SURVIVED';
+      winner = 'NONE';
+      gameOver = false;
+      message = '⚖️ Voting tied! Nobody was eliminated this round. The Imposter is still at large!';
     }
 
     const allRoles = room.players.map(p => {
-      const roleData = room.current_round.privateRoles[p.id];
+      const roleData = room.current_round.privateRoles[p.id] || {};
       return {
         player_id: p.id,
         player_name: p.player_name,
         player_number: p.player_number,
         avatar_index: p.avatar_index,
-        role: roleData.role,
+        is_host: p.is_host,
+        role: roleData.role || (p.is_host ? 'HOST' : 'CIVILIAN'),
         secret_word: roleData.secret_word,
         clue: roleData.clue,
-        is_eliminated: eliminatedIds.includes(p.id),
+        is_eliminated: Boolean(p.is_eliminated),
+        is_just_eliminated: p.id === eliminatedPlayerId,
         votes_received: tally[p.id] || 0
       };
     });
 
-    room.current_phase = 'RESULTS';
+    room.current_phase = gameOver ? 'RESULTS' : 'RESULTS'; // ResultsView will handle round recap vs final game over!
     room.current_round.results = {
       winner,
+      game_over: gameOver,
+      round_number: room.current_round_number,
+      round_result: roundResult,
+      message,
       topic: room.current_round.topic,
       clue: room.current_round.clue,
       category: room.current_round.category,
-      eliminated_player_ids: eliminatedIds,
-      eliminated_roles: eliminatedRoles,
+      eliminated_player_id: eliminatedPlayerId,
+      eliminated_role: eliminatedRole,
+      is_tie: isTie,
       vote_summary: tally,
       all_roles: allRoles
     };
@@ -538,7 +689,48 @@ export const gameEngine = {
   },
 
   /**
-   * Start next round (Round 2, 3...) with the same 8 players
+   * Proceed to the Next Investigation Round (Round 2, 3...)
+   * Continues the match with the SAME secret topic & clue until an imposter is exposed!
+   */
+  async proceedToNextInvestigationRound(roomCode, hostToken) {
+    const cleanCode = roomCode.toUpperCase().trim();
+
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase.rpc('rpc_proceed_to_next_round', {
+        p_room_code: cleanCode,
+        p_host_token: hostToken
+      });
+      if (error) throw new Error(error.message);
+      return data;
+    }
+
+    // Local simulation
+    const room = getLocalState(cleanCode);
+    if (!room) throw new Error('Room not found.');
+
+    const host = room.players.find(p => p.player_token === hostToken && p.is_host);
+    if (!host) throw new Error('Unauthorized.');
+
+    room.current_round_number += 1;
+    room.current_phase = 'DISCUSSION';
+    room.votes = {};
+    // Reset has_voted for alive players
+    room.players.forEach(p => {
+      p.has_voted = false;
+    });
+
+    saveLocalState(cleanCode, room);
+
+    return {
+      success: true,
+      round_number: room.current_round_number,
+      phase: 'DISCUSSION'
+    };
+  },
+
+  /**
+   * Start a brand new match / game (after a game finishes)
+   * Resets eliminated players and returns to lobby for a new topic
    */
   async startNextRound(roomCode, hostToken) {
     const cleanCode = roomCode.toUpperCase().trim();
@@ -559,17 +751,21 @@ export const gameEngine = {
     const host = room.players.find(p => p.player_token === hostToken && p.is_host);
     if (!host) throw new Error('Unauthorized.');
 
-    room.current_round_number += 1;
+    room.current_round_number = 1;
     room.current_phase = 'WAITING';
     room.status = 'LOBBY';
     room.votes = {};
-    room.players.forEach(p => p.has_voted = false);
+    room.current_round = null;
+    room.players.forEach(p => {
+      p.is_eliminated = false;
+      p.has_voted = false;
+    });
 
     saveLocalState(cleanCode, room);
 
     return {
       success: true,
-      next_round_number: room.current_round_number
+      next_round_number: 1
     };
   },
 
