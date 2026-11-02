@@ -51,7 +51,7 @@ export default function CreateRoomView({ onBack, onCreateRoom, isLoading }) {
             </label>
             <input
               type="text"
-              placeholder="e.g. Host Alex"
+              placeholder="e.g. Host Kavin K"
               value={hostName}
               onChange={(e) => setHostName(e.target.value)}
               className="w-full px-4 py-3 rounded-2xl bg-slate-950 border border-slate-800 text-sm text-white focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition"

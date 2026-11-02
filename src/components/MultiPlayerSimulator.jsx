@@ -3,14 +3,14 @@ import { Users, Sparkles, ChevronUp, ChevronDown, UserCheck, ExternalLink } from
 import { sounds } from '../lib/audio';
 
 const DEMO_NAMES = [
-  'Host Alex',
-  'Sarah C.',
-  'Marcus V.',
-  'Priya S.',
-  'Liam O.',
-  'Elena R.',
-  'Jordan T.',
-  'Maya L.'
+  'Kavin K',
+  'Joel',
+  'Ajay',
+  'Inbha',
+  'Hari',
+  'Logesh',
+  'Madhan',
+  'Kishore.'
 ];
 
 export default function MultiPlayerSimulator({
