@@ -45,15 +45,11 @@ export default function Navbar({
               <button
                 type="button"
                 onClick={!isSupabaseConfigured ? onOpenSupabaseSetup : undefined}
-                title={isSupabaseConfigured ? 'Connected to live Supabase backend' : 'Click to see how to enable cross-device multiplayer with Supabase!'}
-                className={`text-[10px] px-2 py-0.5 rounded-full font-mono flex items-center gap-1 transition ${
-                  isSupabaseConfigured 
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 cursor-default' 
-                    : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 cursor-pointer underline decoration-dotted'
-                }`}
+                title={isSupabaseConfigured ? 'Connected to live Supabase backend' : 'Running on Cloud Real-Time Mesh. Click if you want to connect dedicated Supabase.'}
+                className="text-[10px] px-2 py-0.5 rounded-full font-mono flex items-center gap-1 transition bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 cursor-pointer"
               >
-                <Radio className="w-2.5 h-2.5 animate-pulse" />
-                <span>{isSupabaseConfigured ? 'Supabase Realtime' : 'Local Mode (Click for Setup)'}</span>
+                <Radio className="w-2.5 h-2.5 animate-pulse text-emerald-400" />
+                <span>{isSupabaseConfigured ? 'Supabase Realtime' : 'Cloud Realtime (Live)'}</span>
               </button>
             </div>
             <p className="text-[11px] text-slate-400 hidden sm:block">

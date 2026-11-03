@@ -114,32 +114,13 @@ export default function LobbyView({
         </button>
       </div>
 
-      {/* Local Mode Notice for Multi-Device */}
-      {!isSupabaseConfigured && (
-        <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-200 shadow-lg">
-          <div className="flex items-start gap-2.5">
-            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-bold text-amber-300">
-                Playing across separate phones or computers?
-              </p>
-              <p className="text-amber-200/80 text-[11px] mt-0.5">
-                This room is currently stored only in this browser's memory. To allow friends to join from other devices across the internet, connect your free Supabase database in Vercel.
-              </p>
-            </div>
-          </div>
-          {onOpenSupabaseSetup && (
-            <button
-              type="button"
-              onClick={onOpenSupabaseSetup}
-              className="px-3.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold border border-amber-500/40 text-xs transition shrink-0 flex items-center gap-1.5"
-            >
-              <Database className="w-3.5 h-3.5" />
-              <span>Setup Guide</span>
-            </button>
-          )}
+      {/* Real-Time Cloud Multiplayer Active */}
+      <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-emerald-500/30 flex items-center justify-between gap-3 text-xs text-slate-300 shadow-md">
+        <div className="flex items-center gap-2.5 text-emerald-400 font-semibold">
+          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+          <span>Real-Time Cloud Multiplayer Active: Share the code or invite link with players on any phone or PC!</span>
         </div>
-      )}
+      </div>
 
       {/* Host Moderator Banner */}
       {hostPlayer && (

@@ -50,21 +50,10 @@ export default function CreateRoomView({ onBack, onCreateRoom, onOpenSupabaseSet
             You will become the Room Host (Game Master). You will coordinate rounds, timers, and voting without playing a role or voting.
           </p>
 
-          {!isSupabaseConfigured && (
-            <div className="mt-3 p-3 rounded-2xl bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-              <div>
-                <span>Notice: Site is in <strong>Local Mode</strong>. To invite players on other phones/PCs, </span>
-                <button
-                  type="button"
-                  onClick={onOpenSupabaseSetup}
-                  className="text-amber-300 font-bold underline hover:text-white"
-                >
-                  connect Supabase in Vercel.
-                </button>
-              </div>
-            </div>
-          )}
+          <div className="mt-3 p-2.5 rounded-xl bg-emerald-950/20 border border-emerald-500/30 text-emerald-300 text-[11px] flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+            <span>Global Real-Time Cloud Engine Active • Anyone with room link can join!</span>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
