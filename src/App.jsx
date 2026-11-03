@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Navbar from './components/Navbar';
 import HowToPlayModal from './components/HowToPlayModal';
+import SupabaseSetupModal from './components/SupabaseSetupModal';
 import MultiPlayerSimulator from './components/MultiPlayerSimulator';
 import HomeView from './views/HomeView';
 import CreateRoomView from './views/CreateRoomView';
@@ -48,6 +49,7 @@ export default function App() {
 
   // UI state
   const [howToPlayOpen, setHowToPlayOpen] = useState(false);
+  const [supabaseSetupOpen, setSupabaseSetupOpen] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -135,7 +137,7 @@ export default function App() {
       setView('lobby');
       sounds.playVictory();
     } catch (err) {
-      alert(err.message || 'Error creating room.');
+      throw err;
     } finally {
       setIsLoading(false);
     }
@@ -160,7 +162,7 @@ export default function App() {
       setView(roomState.current_phase === 'WAITING' ? 'lobby' : 'game');
       sounds.playVictory();
     } catch (err) {
-      alert(err.message || 'Error joining room.');
+      throw err;
     } finally {
       setIsLoading(false);
     }
@@ -337,6 +339,7 @@ export default function App() {
         roomCode={room?.room_code}
         player={currentPlayer}
         onOpenHelp={() => setHowToPlayOpen(true)}
+        onOpenSupabaseSetup={() => setSupabaseSetupOpen(true)}
         onLeaveRoom={handleLeaveRoom}
         soundEnabled={soundEnabled}
         setSoundEnabled={setSoundEnabled}
@@ -356,6 +359,7 @@ export default function App() {
           <CreateRoomView
             onBack={() => setView('home')}
             onCreateRoom={handleCreateRoom}
+            onOpenSupabaseSetup={() => setSupabaseSetupOpen(true)}
             isLoading={isLoading}
           />
         )}
@@ -365,6 +369,7 @@ export default function App() {
             initialCode={initialJoinCode}
             onBack={() => setView('home')}
             onJoinRoom={handleJoinRoom}
+            onOpenSupabaseSetup={() => setSupabaseSetupOpen(true)}
             isLoading={isLoading}
           />
         )}
@@ -376,6 +381,7 @@ export default function App() {
             isHost={isHost}
             onStartRound={handleStartRound}
             onAddPlayers={handleAddPlayers}
+            onOpenSupabaseSetup={() => setSupabaseSetupOpen(true)}
             isLoading={isLoading}
           />
         )}
@@ -422,6 +428,12 @@ export default function App() {
       <HowToPlayModal
         isOpen={howToPlayOpen}
         onClose={() => setHowToPlayOpen(false)}
+      />
+
+      {/* Supabase Setup Modal for Cross-Device Multiplayer */}
+      <SupabaseSetupModal
+        isOpen={supabaseSetupOpen}
+        onClose={() => setSupabaseSetupOpen(false)}
       />
 
       {/* Footer */}

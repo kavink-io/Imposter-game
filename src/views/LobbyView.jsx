@@ -14,11 +14,14 @@ import {
   Crown,
   UserPlus,
   ShieldCheck,
-  Skull
+  Skull,
+  AlertTriangle,
+  Database
 } from 'lucide-react';
 import PlayerAvatar from '../components/PlayerAvatar';
 import { TOPIC_CATEGORIES } from '../lib/topics';
 import { sounds } from '../lib/audio';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 export default function LobbyView({
   room,
@@ -26,6 +29,7 @@ export default function LobbyView({
   isHost,
   onStartRound,
   onAddPlayers,
+  onOpenSupabaseSetup,
   isLoading
 }) {
   const [copied, setCopied] = useState(false);
@@ -109,6 +113,33 @@ export default function LobbyView({
           <span>{copied ? 'Link Copied to Clipboard!' : 'Copy Invite Link'}</span>
         </button>
       </div>
+
+      {/* Local Mode Notice for Multi-Device */}
+      {!isSupabaseConfigured && (
+        <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-200 shadow-lg">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold text-amber-300">
+                Playing across separate phones or computers?
+              </p>
+              <p className="text-amber-200/80 text-[11px] mt-0.5">
+                This room is currently stored only in this browser's memory. To allow friends to join from other devices across the internet, connect your free Supabase database in Vercel.
+              </p>
+            </div>
+          </div>
+          {onOpenSupabaseSetup && (
+            <button
+              type="button"
+              onClick={onOpenSupabaseSetup}
+              className="px-3.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-bold border border-amber-500/40 text-xs transition shrink-0 flex items-center gap-1.5"
+            >
+              <Database className="w-3.5 h-3.5" />
+              <span>Setup Guide</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Host Moderator Banner */}
       {hostPlayer && (

@@ -7,6 +7,7 @@ export default function Navbar({
   roomCode, 
   player, 
   onOpenHelp, 
+  onOpenSupabaseSetup,
   onLeaveRoom,
   soundEnabled, 
   setSoundEnabled 
@@ -41,14 +42,19 @@ export default function Navbar({
                 Imposter <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">Party</span>
               </span>
               {/* Backend status badge */}
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono flex items-center gap-1 ${
-                isSupabaseConfigured 
-                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' 
-                  : 'bg-violet-500/10 text-violet-400 border border-violet-500/30'
-              }`}>
+              <button
+                type="button"
+                onClick={!isSupabaseConfigured ? onOpenSupabaseSetup : undefined}
+                title={isSupabaseConfigured ? 'Connected to live Supabase backend' : 'Click to see how to enable cross-device multiplayer with Supabase!'}
+                className={`text-[10px] px-2 py-0.5 rounded-full font-mono flex items-center gap-1 transition ${
+                  isSupabaseConfigured 
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 cursor-default' 
+                    : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 cursor-pointer underline decoration-dotted'
+                }`}
+              >
                 <Radio className="w-2.5 h-2.5 animate-pulse" />
-                {isSupabaseConfigured ? 'Supabase Realtime' : 'Local / Multi-Tab Engine'}
-              </span>
+                <span>{isSupabaseConfigured ? 'Supabase Realtime' : 'Local Mode (Click for Setup)'}</span>
+              </button>
             </div>
             <p className="text-[11px] text-slate-400 hidden sm:block">
               Host is Game Master • Multi-Round Investigation • Unlimited Players

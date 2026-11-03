@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { PlusCircle, ArrowLeft, User, Clock, AlertCircle, Crown } from 'lucide-react';
+import { PlusCircle, ArrowLeft, User, Clock, AlertCircle, Crown, AlertTriangle, Database } from 'lucide-react';
 import { sounds } from '../lib/audio';
+import { isSupabaseConfigured } from '../lib/supabase';
 
-export default function CreateRoomView({ onBack, onCreateRoom, isLoading }) {
+export default function CreateRoomView({ onBack, onCreateRoom, onOpenSupabaseSetup, isLoading }) {
   const [hostName, setHostName] = useState('');
   const [discussionTime, setDiscussionTime] = useState(180);
   const [errorMsg, setErrorMsg] = useState('');
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     sounds.playClick();
     setErrorMsg('');
@@ -17,12 +18,16 @@ export default function CreateRoomView({ onBack, onCreateRoom, isLoading }) {
       return;
     }
 
-    onCreateRoom({
-      hostName: hostName.trim(),
-      settings: {
-        discussionTime: Number(discussionTime)
-      }
-    });
+    try {
+      await onCreateRoom({
+        hostName: hostName.trim(),
+        settings: {
+          discussionTime: Number(discussionTime)
+        }
+      });
+    } catch (err) {
+      setErrorMsg(err.message || 'Error creating room.');
+    }
   };
 
   return (
@@ -44,6 +49,22 @@ export default function CreateRoomView({ onBack, onCreateRoom, isLoading }) {
           <p className="text-xs text-slate-400 mt-1">
             You will become the Room Host (Game Master). You will coordinate rounds, timers, and voting without playing a role or voting.
           </p>
+
+          {!isSupabaseConfigured && (
+            <div className="mt-3 p-3 rounded-2xl bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <span>Notice: Site is in <strong>Local Mode</strong>. To invite players on other phones/PCs, </span>
+                <button
+                  type="button"
+                  onClick={onOpenSupabaseSetup}
+                  className="text-amber-300 font-bold underline hover:text-white"
+                >
+                  connect Supabase in Vercel.
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

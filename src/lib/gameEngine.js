@@ -153,7 +153,16 @@ export const gameEngine = {
     // Local simulation
     const room = getLocalState(cleanCode);
     if (!room) {
-      throw new Error(`Room code ${cleanCode} not found.`);
+      const isLiveDomain = typeof window !== 'undefined' && 
+        window.location.hostname !== 'localhost' && 
+        window.location.hostname !== '127.0.0.1';
+
+      if (isLiveDomain) {
+        throw new Error(
+          `Room "${cleanCode}" not found in this browser. The site is currently running in offline Local Mode (Supabase environment variables are missing on Vercel). To play between different phones or computers, configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your Vercel project settings.`
+        );
+      }
+      throw new Error(`Room code "${cleanCode}" not found. Please verify the code and try again.`);
     }
 
     if (room.status !== 'LOBBY') {
@@ -234,7 +243,9 @@ export const gameEngine = {
 
     // Local
     const room = getLocalState(cleanCode);
-    if (!room) throw new Error('Room not found');
+    if (!room) {
+      throw new Error(`Room "${cleanCode}" not found in this browser's local storage.`);
+    }
     return {
       ...room,
       players: room.players.map(({ player_token, ...rest }) => rest)

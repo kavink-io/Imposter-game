@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { LogIn, ArrowLeft, User, KeyRound, AlertCircle } from 'lucide-react';
+import { LogIn, ArrowLeft, User, KeyRound, AlertCircle, AlertTriangle, Database } from 'lucide-react';
 import { sounds } from '../lib/audio';
+import { isSupabaseConfigured } from '../lib/supabase';
 
-export default function JoinRoomView({ initialCode = '', onBack, onJoinRoom, isLoading }) {
+export default function JoinRoomView({ initialCode = '', onBack, onJoinRoom, onOpenSupabaseSetup, isLoading }) {
   const [roomCode, setRoomCode] = useState(initialCode.toUpperCase());
   const [playerName, setPlayerName] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -13,7 +14,7 @@ export default function JoinRoomView({ initialCode = '', onBack, onJoinRoom, isL
     }
   }, [initialCode]);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     sounds.playClick();
     setErrorMsg('');
@@ -28,10 +29,14 @@ export default function JoinRoomView({ initialCode = '', onBack, onJoinRoom, isL
       return;
     }
 
-    onJoinRoom({
-      roomCode: roomCode.trim().toUpperCase(),
-      playerName: playerName.trim()
-    });
+    try {
+      await onJoinRoom({
+        roomCode: roomCode.trim().toUpperCase(),
+        playerName: playerName.trim()
+      });
+    } catch (err) {
+      setErrorMsg(err.message || 'Error joining room.');
+    }
   };
 
   return (
@@ -85,9 +90,21 @@ export default function JoinRoomView({ initialCode = '', onBack, onJoinRoom, isL
           </div>
 
           {errorMsg && (
-            <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-500/40 text-xs text-rose-300 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-              <span>{errorMsg}</span>
+            <div className="p-3.5 rounded-2xl bg-rose-950/70 border border-rose-500/50 text-xs text-rose-200 space-y-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{errorMsg}</span>
+              </div>
+              {!isSupabaseConfigured && onOpenSupabaseSetup && (
+                <button
+                  type="button"
+                  onClick={onOpenSupabaseSetup}
+                  className="w-full mt-1 py-1.5 px-3 rounded-xl bg-purple-900/50 hover:bg-purple-800/60 border border-purple-500/40 text-purple-200 font-bold text-[11px] flex items-center justify-center gap-1.5 transition"
+                >
+                  <Database className="w-3.5 h-3.5 text-purple-400" />
+                  <span>How to connect Supabase for cross-device multiplayer</span>
+                </button>
+              )}
             </div>
           )}
 
